@@ -93,7 +93,7 @@ ENV PATH="${JAVA_HOME}/bin:${PATH}"
 # ── Java: Eclipse JDT LS ─────────────────────────────────────────────────────
 RUN mkdir -p /opt/jdtls \
     && curl -fsSL "https://download.eclipse.org/jdtls/snapshots/jdt-language-server-latest.tar.gz" \
-    | tar -xz -C /opt/jdtls
+    | tar -xz --no-same-owner -C /opt/jdtls
 COPY <<'EOF' /usr/local/bin/jdtls
 #!/bin/sh
 exec java \
