@@ -19,7 +19,7 @@ A self-hosted, multi-language code editor powered by [Monaco Editor](https://mic
 ┌─────────────────────────────────────────────────────────┐
 │  Server (port 9601)                                     │
 │  ┌──────────────┐  ┌───────────┐  ┌──────────────────┐ │
-│  │ HTTP (Hono)  │  │ WS Proxy  │  │ LSP Interceptor  │ │
+│  │ HTTP         │  │ WS Proxy  │  │ LSP Interceptor  │ │
 │  │ /api/*       │  │ upgrade → │──│ URI rewrite      │ │
 │  │ static files │  │ spawn LSP │  │ file sync        │ │
 │  └──────────────┘  └───────────┘  └──────────────────┘ │
