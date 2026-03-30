@@ -7,7 +7,7 @@ COPY package.json bun.lock* ./
 COPY packages/client/package.json ./packages/client/
 COPY packages/server/package.json ./packages/server/
 
-RUN bun install --frozen-lockfile
+RUN bun install
 
 COPY . .
 

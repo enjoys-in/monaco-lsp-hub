@@ -1,12 +1,4 @@
-{
-    "jsonrpc": "2.0",
-    "id": 0,
-    "method": "initialize",
-    "params": {
-        "processId": null,
-        "capabilities": {
-            "textDocument": {
-                "synchronization": {
+       "synchronization": {
                     "dynamicRegistration": true,
                     "willSave": false,
                     "willSaveWaitUntil": false,
@@ -277,13 +269,33 @@
                     "dynamicRegistration": true,
                     "relatedDocumentSupport": true
                 }
-            },
-            "workspace": {
-                "inlayHint": {
-                    "refreshSupport": true
-                }
-            }
-        },
-        "rootUri": null
-    }
-}
+
+                [
+  "codeActions",
+  "codeLens",
+  "color",
+  "commands",
+  "completion",
+  "declaration",
+  "definition",
+  "documentHighlight",
+  "documentRangeFormatting",
+  "documentSymbol",
+  "foldingRange",
+  "formatting",
+  "hover",
+  "implementation",
+  "inlayHints",
+  "inlineCompletions",
+  "languageConfiguration",
+  "linkedEditingRange",
+  "links",
+  "onTypeFormatting",
+  "rangeSemanticTokens",
+  "references",
+  "rename",
+  "selectionRange",
+  "semanticTokens",
+  "signatureHelp",
+  "themes",
+  "typeDefinition"
