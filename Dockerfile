@@ -58,11 +58,16 @@ RUN TEXLAB_VER=$(curl -fsSL https://api.github.com/repos/latex-lsp/texlab/releas
     && curl -fsSL "https://github.com/latex-lsp/texlab/releases/download/v${TEXLAB_VER}/texlab-x86_64-linux.tar.gz" \
     | tar -xz -C /usr/local/bin
 
-# ── Terraform: terraform-ls ──────────────────────────────────────────────────
+# ── Terraform: terraform-ls + terraform CLI ──────────────────────────────────
+# terraform-ls needs `terraform` on PATH for schema discovery and validation
 RUN TFLS_VER=$(curl -fsSL https://api.github.com/repos/hashicorp/terraform-ls/releases/latest | grep -oP '"tag_name":\s*"v?\K[^"]+') \
     && curl -fsSL "https://releases.hashicorp.com/terraform-ls/${TFLS_VER}/terraform-ls_${TFLS_VER}_linux_amd64.zip" \
         -o /tmp/tfls.zip \
     && unzip /tmp/tfls.zip -d /usr/local/bin && rm /tmp/tfls.zip
+RUN TF_VER=$(curl -fsSL https://api.github.com/repos/hashicorp/terraform/releases/latest | grep -oP '"tag_name":\s*"v?\K[^"]+') \
+    && curl -fsSL "https://releases.hashicorp.com/terraform/${TF_VER}/terraform_${TF_VER}_linux_amd64.zip" \
+        -o /tmp/tf.zip \
+    && unzip /tmp/tf.zip -d /usr/local/bin && rm /tmp/tf.zip
 
 # ── Zig: zls ─────────────────────────────────────────────────────────────────
 RUN ZLS_VER=$(curl -fsSL https://api.github.com/repos/zigtools/zls/releases/latest | grep -oP '"tag_name":\s*"\K[^"]+') \
@@ -73,7 +78,9 @@ RUN ZLS_VER=$(curl -fsSL https://api.github.com/repos/zigtools/zls/releases/late
 RUN curl -fsSL https://github.com/clojure-lsp/clojure-lsp/releases/latest/download/clojure-lsp-native-static-linux-amd64.zip \
     -o /tmp/clj-lsp.zip && unzip /tmp/clj-lsp.zip -d /usr/local/bin && rm /tmp/clj-lsp.zip
 
-# ── Helm: helm-ls ───────────────────────────────────────────────────────────
+# ── Helm: helm CLI + helm-ls ─────────────────────────────────────────────────
+# helm-ls needs `helm` on PATH for template rendering and linting
+RUN curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 RUN curl -fsSL "https://github.com/mrjosh/helm-ls/releases/latest/download/helm_ls_linux_amd64" \
     -o /usr/local/bin/helm_ls && chmod +x /usr/local/bin/helm_ls
 
@@ -174,8 +181,10 @@ ENV PATH="${JAVA_HOME}/bin:${PATH}"
 
 # ── Copy prebuilt binaries ───────────────────────────────────────────────────
 
-# Go: gopls
+# Go: toolchain + gopls (gopls shells out to `go` for module resolution)
+COPY --from=systools /usr/local/go /usr/local/go
 COPY --from=systools /root/go/bin/gopls /usr/local/bin/gopls
+ENV PATH="/usr/local/go/bin:${PATH}"
 
 # Rust: rust-analyzer
 COPY --from=systools /usr/local/bin/rust-analyzer /usr/local/bin/rust-analyzer
@@ -196,8 +205,9 @@ COPY --from=systools /usr/local/bin/taplo /usr/local/bin/taplo
 # LaTeX: texlab
 COPY --from=systools /usr/local/bin/texlab /usr/local/bin/texlab
 
-# Terraform: terraform-ls
+# Terraform: terraform-ls + terraform CLI
 COPY --from=systools /usr/local/bin/terraform-ls /usr/local/bin/terraform-ls
+COPY --from=systools /usr/local/bin/terraform /usr/local/bin/terraform
 
 # Zig: zls
 COPY --from=systools /usr/local/bin/zls /usr/local/bin/zls
@@ -205,8 +215,9 @@ COPY --from=systools /usr/local/bin/zls /usr/local/bin/zls
 # Clojure: clojure-lsp
 COPY --from=systools /usr/local/bin/clojure-lsp /usr/local/bin/clojure-lsp
 
-# Helm: helm-ls
+# Helm: helm CLI + helm-ls
 COPY --from=systools /usr/local/bin/helm_ls /usr/local/bin/helm_ls
+COPY --from=systools /usr/local/bin/helm /usr/local/bin/helm
 
 # Grammar: harper-ls
 COPY --from=systools /usr/local/bin/harper-ls /usr/local/bin/harper-ls
