@@ -67,7 +67,7 @@ RUN TFLS_VER=$(curl -fsSL https://api.github.com/repos/hashicorp/terraform-ls/re
 # ── Zig: zls ─────────────────────────────────────────────────────────────────
 RUN ZLS_VER=$(curl -fsSL https://api.github.com/repos/zigtools/zls/releases/latest | grep -oP '"tag_name":\s*"\K[^"]+') \
     && curl -fsSL "https://github.com/zigtools/zls/releases/download/${ZLS_VER}/zls-x86_64-linux.tar.xz" \
-    | tar -xJ --strip-components=1 -C /usr/local/bin
+    | tar -xJ -C /usr/local/bin zls && chmod +x /usr/local/bin/zls
 
 # ── Clojure: clojure-lsp ────────────────────────────────────────────────────
 RUN curl -fsSL https://github.com/clojure-lsp/clojure-lsp/releases/latest/download/clojure-lsp-native-static-linux-amd64.zip \
@@ -223,6 +223,7 @@ RUN ln -s /opt/kotlin-language-server/bin/kotlin-language-server /usr/local/bin/
 COPY --from=systools /usr/local/bin/metals /usr/local/bin/metals
 
 # XML: lemminx
+COPY --from=systools /usr/local/lib/lemminx.jar /usr/local/lib/lemminx.jar
 COPY --from=systools /usr/local/bin/lemminx /usr/local/bin/lemminx
 
 # Dart SDK
@@ -235,7 +236,7 @@ COPY --from=systools /usr/local/bin/pylsp /usr/local/bin/cmake-language-server \
     /usr/local/bin/esbonio /usr/local/bin/nginx-language-server /usr/local/bin/
 
 # Ruby: solargraph
-COPY --from=systools /usr/local/lib/ruby /usr/local/lib/ruby
+COPY --from=systools /var/lib/gems /var/lib/gems
 COPY --from=systools /usr/local/bin/solargraph /usr/local/bin/solargraph
 
 # PHP: phpactor
