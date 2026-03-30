@@ -136,6 +136,21 @@ const NPM_SERVERS: Record<string, ServerConfig> = {
         command: resolveNpmBin("diagnostic-languageserver", "diagnostic-languageserver"),
         args: ["--stdio"],
     },
+    "/lsp/tailwindcss": {
+        name: "Tailwind CSS",
+        command: resolveNpmBin("@tailwindcss/language-server", "tailwindcss-language-server"),
+        args: ["--stdio"],
+    },
+    "/lsp/vim": {
+        name: "VimScript",
+        command: resolveNpmBin("vim-language-server", "vim-language-server"),
+        args: ["--stdio"],
+    },
+    "/lsp/biome": {
+        name: "Biome (JS/TS/CSS/GraphQL)",
+        command: resolveNpmBin("@biomejs/biome", "biome"),
+        args: ["lsp-proxy"],
+    },
 };
 
 // ── System-installed language servers (auto-detected from PATH) ──────────────
@@ -179,6 +194,12 @@ const SYSTEM_SERVER_DEFS: Record<string, SystemServerDef> = {
     // Ruby / PHP
     "/lsp/ruby": { name: "Ruby (Solargraph)", bin: "solargraph", args: ["stdio"] },
     "/lsp/php": { name: "PHP (phpactor)", bin: "phpactor", args: ["language-server"] },
+
+    // Helm (Kubernetes)
+    "/lsp/helm": { name: "Helm", bin: "helm_ls", args: ["serve"] },
+
+    // Grammar checker
+    "/lsp/harper": { name: "Harper (grammar)", bin: "harper-ls", args: ["--stdio"] },
 };
 
 // ── Path aliases: multiple language IDs → same server ────────────────────────

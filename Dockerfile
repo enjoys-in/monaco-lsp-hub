@@ -78,6 +78,15 @@ RUN NIL_VER=$(curl -fsSL https://api.github.com/repos/oxalica/nil/releases/lates
     && curl -fsSL "https://github.com/oxalica/nil/releases/download/${NIL_VER}/nil-${NIL_VER}-x86_64-linux.tar.gz" \
     | tar -xz -C /usr/local/bin
 
+# ── Helm: helm-ls ───────────────────────────────────────────────────────────
+RUN curl -fsSL "https://github.com/mrjosh/helm-ls/releases/latest/download/helm_ls_linux_amd64" \
+    -o /usr/local/bin/helm_ls && chmod +x /usr/local/bin/helm_ls
+
+# ── Grammar: harper-ls ──────────────────────────────────────────────────────
+RUN HARPER_VER=$(curl -fsSL https://api.github.com/repos/Automattic/harper/releases/latest | grep -oP '"tag_name":\s*"v?\K[^"]+') \
+    && curl -fsSL "https://github.com/Automattic/harper/releases/download/v${HARPER_VER}/harper-ls-x86_64-unknown-linux-gnu" \
+    -o /usr/local/bin/harper-ls && chmod +x /usr/local/bin/harper-ls
+
 # ── JRE 21 (for JVM-based language servers) ──────────────────────────────────
 RUN curl -fsSL "https://api.adoptium.net/v3/binary/latest/21/ga/linux/x64/jre/hotspot/normal/eclipse" \
     -o /tmp/jre.tar.gz \
@@ -199,6 +208,12 @@ COPY --from=systools /usr/local/bin/clojure-lsp /usr/local/bin/clojure-lsp
 
 # Nix: nil
 COPY --from=systools /usr/local/bin/nil /usr/local/bin/nil
+
+# Helm: helm-ls
+COPY --from=systools /usr/local/bin/helm_ls /usr/local/bin/helm_ls
+
+# Grammar: harper-ls
+COPY --from=systools /usr/local/bin/harper-ls /usr/local/bin/harper-ls
 
 # Java: Eclipse JDT LS
 COPY --from=systools /opt/jdtls /opt/jdtls
