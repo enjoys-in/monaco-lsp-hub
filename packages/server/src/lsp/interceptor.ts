@@ -2,6 +2,15 @@
 // Handles URI rewriting, workspace initialization, and file synchronization.
 
 import type { Workspace } from "./workspace.js";
+import type {
+    LspMessage,
+    LspParams,
+    InitializeParams,
+    DidOpenTextDocumentParams,
+    DidChangeTextDocumentParams,
+    DidCloseTextDocumentParams,
+    Range,
+} from "./types.js";
 
 /** Apply an incremental LSP text edit (range + newText) to a string */
 function applyTextEdit(
@@ -24,31 +33,35 @@ function linesToOffset(lines: string[], line: number, character: number): number
 }
 
 export interface MessageInterceptor {
-    processClientMessage(msg: any): any;
-    processServerMessage(msg: any): any;
+    processClientMessage(msg: LspMessage): LspMessage;
+    processServerMessage(msg: LspMessage): LspMessage;
 }
 
 export function createInterceptor(workspace: Workspace): MessageInterceptor {
     const { dir, uri, virtualToReal, realToVirtual, rewriteUris, syncFile, removeFile, reclaimFile, getFileContent } = workspace;
 
-    function processClientMessage(msg: any): any {
+    function processClientMessage(msg: LspMessage): LspMessage {
+        if (!("method" in msg)) return msg; // response message — pass through
+
         // initialize: rewrite rootUri / rootPath / workspaceFolders to real temp dir
         if (msg.method === "initialize" && msg.params) {
-            msg.params.rootUri = uri;
-            msg.params.rootPath = dir;
-            if (msg.params.workspaceFolders) {
-                msg.params.workspaceFolders = [{ uri, name: "workspace" }];
+            const params = msg.params as InitializeParams;
+            params.rootUri = uri;
+            params.rootPath = dir;
+            if (params.workspaceFolders) {
+                params.workspaceFolders = [{ uri, name: "workspace" }];
             }
         }
 
         // Rewrite all file:// URIs in params from virtual → real
         if (msg.params) {
-            msg.params = rewriteUris(msg.params, virtualToReal);
+            msg.params = rewriteUris(msg.params, virtualToReal) as LspParams;
         }
 
         // textDocument/didOpen — reclaim from cache or sync to disk
-        if (msg.method === "textDocument/didOpen" && msg.params?.textDocument) {
-            const { uri: docUri, text } = msg.params.textDocument;
+        if (msg.method === "textDocument/didOpen" && msg.params) {
+            const params = msg.params as unknown as DidOpenTextDocumentParams;
+            const { uri: docUri, text } = params.textDocument;
             // Cancel pending removal — if cached content + disk file still exist,
             // syncFile will skip the write (hash match). Instant reopen.
             reclaimFile(docUri);
@@ -57,15 +70,16 @@ export function createInterceptor(workspace: Workspace): MessageInterceptor {
 
         // textDocument/didChange — sync content updates (full and incremental)
         if (msg.method === "textDocument/didChange" && msg.params) {
-            const docUri = msg.params.textDocument.uri;
-            const changes = msg.params.contentChanges;
+            const params = msg.params as unknown as DidChangeTextDocumentParams;
+            const docUri = params.textDocument.uri;
+            const changes = params.contentChanges;
             if (changes) {
                 let content = getFileContent(docUri) ?? "";
                 for (const change of changes) {
                     if (change.range === undefined) {
                         content = change.text;
                     } else {
-                        content = applyTextEdit(content, change.range, change.text);
+                        content = applyTextEdit(content, change.range as Range, change.text);
                     }
                 }
                 syncFile(docUri, content);
@@ -73,20 +87,21 @@ export function createInterceptor(workspace: Workspace): MessageInterceptor {
         }
 
         // textDocument/didClose — remove temp file
-        if (msg.method === "textDocument/didClose" && msg.params?.textDocument) {
-            removeFile(msg.params.textDocument.uri);
+        if (msg.method === "textDocument/didClose" && msg.params) {
+            const params = msg.params as unknown as DidCloseTextDocumentParams;
+            removeFile(params.textDocument.uri);
         }
 
         return msg;
     }
 
-    function processServerMessage(msg: any): any {
+    function processServerMessage(msg: LspMessage): LspMessage {
         // Rewrite all file:// URIs from real → virtual
         if (msg.result !== undefined) {
             msg.result = rewriteUris(msg.result, realToVirtual);
         }
         if (msg.params) {
-            msg.params = rewriteUris(msg.params, realToVirtual);
+            msg.params = rewriteUris(msg.params, realToVirtual) as LspParams;
         }
         // Rewrite URIs in error responses (e.g. error.data may contain file paths)
         if (msg.error?.data !== undefined) {

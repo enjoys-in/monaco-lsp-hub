@@ -21,7 +21,7 @@ export interface Workspace {
     /** Map a real temp URI back to the virtual file:///workspace/… URI */
     realToVirtual(uri: string): string;
     /** Recursively rewrite all file:// URIs in an object */
-    rewriteUris(obj: any, rewriter: (uri: string) => string): any;
+    rewriteUris(obj: unknown, rewriter: (uri: string) => string): unknown;
     /** Write file content to disk (skips write if content unchanged) */
     syncFile(uri: string, content: string): void;
     /** Remove a file from the temp workspace */
@@ -54,13 +54,13 @@ export function createWorkspace(): Workspace {
         return VIRTUAL_ROOT + suffix;
     }
 
-    function rewriteUris(obj: any, rewriter: (u: string) => string): any {
+    function rewriteUris(obj: unknown, rewriter: (u: string) => string): unknown {
         if (typeof obj === "string") {
             return obj.startsWith("file://") ? rewriter(obj) : obj;
         }
         if (Array.isArray(obj)) return obj.map((v) => rewriteUris(v, rewriter));
         if (obj && typeof obj === "object") {
-            const out: any = {};
+            const out: Record<string, unknown> = {};
             for (const [k, v] of Object.entries(obj)) {
                 // Rewrite keys that are file:// URIs (e.g. WorkspaceEdit.changes)
                 const rewrittenKey = k.startsWith("file://") ? rewriter(k) : k;

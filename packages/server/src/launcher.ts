@@ -18,6 +18,7 @@ import {
 import { createWorkspace, type Workspace } from "./lsp/workspace.js";
 import { createInterceptor } from "./lsp/interceptor.js";
 import { scaffoldWorkspace } from "./lsp/scaffold.js";
+import type { LspMessage } from "./lsp/types.js";
 
 /** Map language path IDs to file extensions for pre-scaffolding */
 const LANG_TO_EXT: Record<string, string> = {
@@ -48,8 +49,8 @@ export function launchLanguageServer(
 
     const interceptor = createInterceptor(workspace);
     const handlers = {
-        processClientMessage: (msg: any) => interceptor.processClientMessage(msg),
-        processServerMessage: (msg: any) => interceptor.processServerMessage(msg),
+        processClientMessage: (msg: LspMessage) => interceptor.processClientMessage(msg),
+        processServerMessage: (msg: LspMessage) => interceptor.processServerMessage(msg),
     };
 
     let transport: TransportBridge;

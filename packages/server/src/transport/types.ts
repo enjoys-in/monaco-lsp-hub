@@ -2,6 +2,7 @@
 
 import type { WebSocket } from "ws";
 import type { ChildProcess, SpawnOptions } from "child_process";
+import type { LspMessage } from "../lsp/types.js";
 
 export type TransportType = "raw" | "jsonrpc";
 
@@ -12,8 +13,8 @@ export interface TransportBridge {
 
 /** Interceptors applied to messages flowing in each direction */
 export interface MessageHandlers {
-    processClientMessage: (msg: any) => any;
-    processServerMessage: (msg: any) => any;
+    processClientMessage: (msg: LspMessage) => LspMessage;
+    processServerMessage: (msg: LspMessage) => LspMessage;
 }
 
 /** Options for the raw transport (caller spawns the process) */

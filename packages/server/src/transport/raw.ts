@@ -2,6 +2,7 @@
 
 import type { WebSocket } from "ws";
 import type { TransportBridge, RawTransportOptions } from "./types.js";
+import type { LspMessage } from "../lsp/types.js";
 
 export class RawTransportBridge implements TransportBridge {
     private stdoutBuffer = "";
@@ -36,7 +37,7 @@ export class RawTransportBridge implements TransportBridge {
 
     private drainBuffer(
         ws: WebSocket,
-        processServerMessage: (msg: any) => any,
+        processServerMessage: (msg: LspMessage) => LspMessage,
     ): void {
         while (true) {
             const headerEnd = this.stdoutBuffer.indexOf("\r\n\r\n");

@@ -9,6 +9,7 @@ import {
 } from "vscode-ws-jsonrpc";
 import { createServerProcess, type IConnection } from "vscode-ws-jsonrpc/server";
 import type { TransportBridge, JsonRpcTransportOptions } from "./types.js";
+import type { LspMessage } from "../lsp/types.js";
 
 /** Adapt a `ws` WebSocket into the IWebSocket interface expected by vscode-ws-jsonrpc */
 function toIWebSocket(ws: WebSocket): IWebSocket {
@@ -64,7 +65,7 @@ export class JsonRpcTransportBridge implements TransportBridge {
 
         // Forward: WS → process (client → server) with interception
         this.wsReader.listen((message) => {
-            const msg = message as any;
+            const msg = message as LspMessage;
             console.log(`[JsonRpc:${serverName}] C→S: ${msg.method ?? `response:${msg.id}`}`);
             const transformed = processClientMessage(msg);
             serverConn.writer.write(transformed).catch((err) => {
@@ -74,7 +75,7 @@ export class JsonRpcTransportBridge implements TransportBridge {
 
         // Forward: process → WS (server → client) with interception
         serverConn.reader.listen((message) => {
-            const msg = message as any;
+            const msg = message as LspMessage;
             console.log(`[JsonRpc:${serverName}] S→C: ${msg.method ?? `response:${msg.id}`}`);
             const transformed = processServerMessage(msg);
             this.wsWriter!.write(transformed).catch((err) => {
