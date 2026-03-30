@@ -21,11 +21,17 @@ import { LspSelectionRangeFeature } from "./features/LspSelectionRangeFeature";
 import { LspInlayHintsFeature } from "./features/LspInlayHintsFeature";
 import { LspSemanticTokensFeature } from "./features/LspSemanticTokensFeature";
 import { LspDiagnosticsFeature } from "./features/LspDiagnosticsFeature";
-import { api } from "./types";
+import { api, type ShowMessageParams, type LogMessageParams, type ShowMessageRequestParams, type MessageActionItem } from "./types";
 import { LspConnection } from "./LspConnection";
 import { LspCapabilitiesRegistry } from './LspCapabilitiesRegistry';
 import { TextDocumentSynchronizer } from "./TextDocumentSynchronizer";
 import { DisposableStore, IDisposable } from "./utils";
+
+export interface LspClientCallbacks {
+    onShowMessage?: (params: ShowMessageParams) => void;
+    onLogMessage?: (params: LogMessageParams) => void;
+    onShowMessageRequest?: (params: ShowMessageRequestParams) => Promise<MessageActionItem | null>;
+}
 
 export class MonacoLspClient {
     private _connection: LspConnection;
@@ -34,9 +40,26 @@ export class MonacoLspClient {
 
     private _initPromise: Promise<void>;
 
-    constructor(transport: IMessageTransport) {
+    constructor(transport: IMessageTransport, callbacks: LspClientCallbacks = {}) {
         const c = TypedChannel.fromTransport(transport);
-        const s = api.getServer(c, {});
+
+        // Client-side handlers for server→client notifications/requests
+        // Keys must match the property names in api.client (e.g. windowShowMessage)
+        const clientHandler: Record<string, Function> = {};
+
+        if (callbacks.onShowMessage) {
+            clientHandler.windowShowMessage = callbacks.onShowMessage;
+        }
+
+        if (callbacks.onLogMessage) {
+            clientHandler.windowLogMessage = callbacks.onLogMessage;
+        }
+
+        if (callbacks.onShowMessageRequest) {
+            clientHandler.windowShowMessageRequest = callbacks.onShowMessageRequest;
+        }
+
+        const s = api.getServer(c, clientHandler);
         c.startListen();
 
         this._capabilitiesRegistry = new LspCapabilitiesRegistry(c);

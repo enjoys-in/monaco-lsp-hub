@@ -8,6 +8,7 @@ import type * as Monaco from "monaco-editor";
 import { WebSocketTransport } from "@hediet/json-rpc-websocket";
 import { MonacoLspClient } from "./lsp/LspClient";
 import { languages, type LanguageConfig } from "./config";
+import { showToast, lspMessageTypeToToast } from "./toast";
 
 const monaco = await loader.init();
 
@@ -81,7 +82,23 @@ async function connectLanguageClient(langConfig: LanguageConfig): Promise<void> 
         const transport = await WebSocketTransport.connectTo({ address: url });
         currentTransport = transport;
 
-        const client = new MonacoLspClient(transport);
+        const client = new MonacoLspClient(transport, {
+            onShowMessage(params) {
+                showToast({
+                    message: params.message,
+                    type: lspMessageTypeToToast(params.type),
+                });
+            },
+            onLogMessage(params) {
+                const level = params.type <= 1 ? "error" : params.type === 2 ? "warn" : "log";
+                (console as any)[level]("[LSP]", params.message);
+                showToast({
+                    message: params.message,
+                    type: lspMessageTypeToToast(params.type),
+                    duration: 3000,
+                });
+            },
+        });
         currentClient = client;
 
         setStatus(`Connected to ${langConfig.serverName}`, "connected");

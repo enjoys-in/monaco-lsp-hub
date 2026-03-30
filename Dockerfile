@@ -121,11 +121,15 @@ RUN curl -fsSL "https://github.com/coursier/coursier/releases/latest/download/cs
     | gunzip > /usr/local/bin/cs && chmod +x /usr/local/bin/cs \
     && /usr/local/bin/cs install metals --install-dir /usr/local/bin
 
-# ── XML: lemminx ─────────────────────────────────────────────────────────────
-RUN LEMMINX_VER=$(curl -fsSL https://api.github.com/repos/eclipse/lemminx/releases/latest | grep -oP '"tag_name":\s*"\K[^"]+') \
-    && curl -fsSL "https://github.com/eclipse/lemminx/releases/download/${LEMMINX_VER}/lemminx-linux.zip" \
-        -o /tmp/lemminx.zip \
-    && unzip /tmp/lemminx.zip -d /usr/local/bin && chmod +x /usr/local/bin/lemminx && rm /tmp/lemminx.zip
+# ── XML: lemminx (uber JAR — native binary not published on GitHub) ──────────
+RUN LEMMINX_VER=0.31.0 \
+    && curl -fsSL "https://repo.eclipse.org/content/repositories/lemminx-releases/org/eclipse/lemminx/org.eclipse.lemminx/${LEMMINX_VER}/org.eclipse.lemminx-${LEMMINX_VER}-uber.jar" \
+        -o /usr/local/lib/lemminx.jar
+COPY <<'EOF' /usr/local/bin/lemminx
+#!/bin/sh
+exec java -jar /usr/local/lib/lemminx.jar "$@"
+EOF
+RUN chmod +x /usr/local/bin/lemminx
 
 # ── Dart: Dart SDK ───────────────────────────────────────────────────────────
 RUN curl -fsSL "https://storage.googleapis.com/dart-archive/channels/stable/release/latest/sdk/dartsdk-linux-x64-release.zip" \
