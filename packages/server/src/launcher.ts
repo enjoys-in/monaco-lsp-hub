@@ -17,16 +17,34 @@ import {
 } from "./transport/index.js";
 import { createWorkspace, type Workspace } from "./lsp/workspace.js";
 import { createInterceptor } from "./lsp/interceptor.js";
+import { scaffoldWorkspace } from "./lsp/scaffold.js";
+
+/** Map language path IDs to file extensions for pre-scaffolding */
+const LANG_TO_EXT: Record<string, string> = {
+    rust: "rs", go: "go", typescript: "ts", javascript: "js", python: "py", java: "java",
+};
 
 export function launchLanguageServer(
     ws: WebSocket,
     config: ServerConfig,
     transportType: TransportType,
+    langId?: string,
 ): void {
     console.log(`[LSP] Starting ${config.name} (transport: ${transportType})...`);
 
     const workspace = createWorkspace();
     console.log(`[LSP] Temp workspace: ${workspace.dir}`);
+
+    // Pre-scaffold project files before spawning (rust-analyzer needs Cargo.toml at init)
+    if (langId) {
+        const ext = LANG_TO_EXT[langId];
+        if (ext) {
+            const result = scaffoldWorkspace(workspace.dir, `file:///workspace/main.${ext}`);
+            if (result) {
+                console.log(`[LSP] Pre-scaffolded ${result.language}: ${result.created.join(", ")}`);
+            }
+        }
+    }
 
     const interceptor = createInterceptor(workspace);
     const handlers = {

@@ -57,7 +57,8 @@ httpServer.on("upgrade", (request: IncomingMessage, socket: Socket, head: Buffer
     const transport = (url.searchParams.get("transport") ?? "jsonrpc") as TransportType;
 
     wss.handleUpgrade(request, socket, head, (ws: WebSocket) => {
-        launchLanguageServer(ws, serverConfig, transport);
+        const langId = pathname.replace("/lsp/", "");
+        launchLanguageServer(ws, serverConfig, transport, langId);
     });
 });
 

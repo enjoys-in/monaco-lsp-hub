@@ -5,6 +5,7 @@ export default defineConfig({
         target: "esnext",
     },
     server: {
+        port: 9602,
         proxy: {
             "/lsp": {
                 target: "ws://localhost:9601",
