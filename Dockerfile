@@ -247,7 +247,7 @@ COPY --from=systools /usr/local/bin/phpactor /usr/local/bin/phpactor
 COPY package.json bun.lock* ./
 COPY packages/server/package.json ./packages/server/
 
-RUN cd packages/server && bun install --production
+RUN cd packages/server && bun install --production --frozen-lockfile=false
 
 # Copy built client
 COPY --from=builder /app/packages/client/dist ./packages/client/dist
