@@ -30,12 +30,31 @@
                 <button class="tab" data-lang="c">C/C++</button>
             </nav>
 
-            <div id="editor-container"></div>
+            <div id="workspace">
+                <aside id="sidebar">
+                    <div class="sidebar-tabs">
+                        <button class="sidebar-tab active" data-panel="files">Files</button>
+                        <button class="sidebar-tab" data-panel="diagnostics">
+                            Diagnostics <span id="diagnostic-badge" class="badge hidden">0</span>
+                        </button>
+                    </div>
+                    <div id="panel-files" class="sidebar-panel active">
+                        <div id="file-list"></div>
+                    </div>
+                    <div id="panel-diagnostics" class="sidebar-panel">
+                        <div id="diagnostics-list"></div>
+                    </div>
+                </aside>
+                <div id="editor-container"></div>
+            </div>
 
             <footer>
                 <span id="status">Connecting...</span>
+                <span id="status-diagnostics"></span>
             </footer>
         </div>
+
+        <div id="toast-container"></div>
 
         <script type="module" src="/src/main.ts"></script>
     </body>

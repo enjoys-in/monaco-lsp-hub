@@ -64,14 +64,29 @@ export class JsonRpcTransportBridge implements TransportBridge {
 
         // Forward: WS → process (client → server) with interception
         this.wsReader.listen((message) => {
-            const transformed = processClientMessage(message as any);
-            serverConn.writer.write(transformed).catch(() => {});
+            const msg = message as any;
+            console.log(`[JsonRpc:${serverName}] C→S: ${msg.method ?? `response:${msg.id}`}`);
+            const transformed = processClientMessage(msg);
+            serverConn.writer.write(transformed).catch((err) => {
+                console.error(`[JsonRpc:${serverName}] Write to server failed:`, err);
+            });
         });
 
         // Forward: process → WS (server → client) with interception
         serverConn.reader.listen((message) => {
-            const transformed = processServerMessage(message as any);
-            this.wsWriter!.write(transformed).catch(() => {});
+            const msg = message as any;
+            console.log(`[JsonRpc:${serverName}] S→C: ${msg.method ?? `response:${msg.id}`}`);
+            const transformed = processServerMessage(msg);
+            this.wsWriter!.write(transformed).catch((err) => {
+                console.error(`[JsonRpc:${serverName}] Write to WS failed:`, err);
+            });
+        });
+
+        serverConn.reader.onError((err) => {
+            console.error(`[JsonRpc:${serverName}] Server reader error:`, err);
+        });
+        serverConn.reader.onClose(() => {
+            console.log(`[JsonRpc:${serverName}] Server reader closed`);
         });
     }
 

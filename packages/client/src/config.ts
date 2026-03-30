@@ -1,11 +1,17 @@
 // Language configurations: sample code and metadata for each language
 
+export interface ScaffoldFile {
+    name: string;
+    content: string;
+}
+
 export interface LanguageConfig {
     id: string;
     languageId: string; // Monaco language identifier
     fileExtension: string;
     serverName: string;
     sampleCode: string;
+    scaffold?: ScaffoldFile[];
 }
 
 export const languages: Record<string, LanguageConfig> = {
@@ -189,6 +195,9 @@ volumes:
         languageId: "typescript",
         fileExtension: "ts",
         serverName: "TypeScript Language Server",
+        scaffold: [
+            { name: "tsconfig.json", content: `{\n  "compilerOptions": {\n    "target": "ES2022",\n    "module": "ES2022",\n    "moduleResolution": "bundler",\n    "strict": true,\n    "esModuleInterop": true,\n    "skipLibCheck": true,\n    "lib": ["ES2022", "DOM"]\n  },\n  "include": ["."]\n}\n` },
+        ],
         sampleCode: `interface User {
     id: number;
     name: string;
@@ -232,6 +241,9 @@ main().catch(console.error);`,
         languageId: "python",
         fileExtension: "py",
         serverName: "Pyright Language Server",
+        scaffold: [
+            { name: "pyrightconfig.json", content: `{\n  "pythonVersion": "3.12",\n  "typeCheckingMode": "basic",\n  "include": ["."]\n}\n` },
+        ],
         sampleCode: `from dataclasses import dataclass
 from typing import Optional
 import asyncio
@@ -377,6 +389,9 @@ CMD ["node", "dist/main.js"]`,
         languageId: "rust",
         fileExtension: "rs",
         serverName: "Rust (rust-analyzer)",
+        scaffold: [
+            { name: "Cargo.toml", content: `[package]\nname = "playground"\nversion = "0.1.0"\nedition = "2021"\n\n[[bin]]\nname = "main"\npath = "main.rs"\n` },
+        ],
         sampleCode: `use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
@@ -441,6 +456,9 @@ fn main() {
         languageId: "go",
         fileExtension: "go",
         serverName: "Go (gopls)",
+        scaffold: [
+            { name: "go.mod", content: `module playground\n\ngo 1.21\n` },
+        ],
         sampleCode: `package main
 
 import (

@@ -7,6 +7,7 @@
     --accent-hover: #1a8fff;
     --tab-active: #1e1e1e;
     --tab-inactive: #2d2d2d;
+    --sidebar-width: 220px;
 }
 
 * {
@@ -79,10 +80,175 @@ header .subtitle {
     border-bottom-color: var(--accent);
 }
 
+/* ── Workspace Layout (sidebar + editor) ──────────────────────────────────── */
+
+#workspace {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+}
+
 #editor-container {
     flex: 1;
     overflow: hidden;
 }
+
+/* ── Sidebar ──────────────────────────────────────────────────────────────── */
+
+#sidebar {
+    width: var(--sidebar-width);
+    min-width: var(--sidebar-width);
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.sidebar-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+}
+
+.sidebar-tab {
+    flex: 1;
+    padding: 6px 8px;
+    border: none;
+    background: transparent;
+    color: #888;
+    cursor: pointer;
+    font-size: 11px;
+    font-family: inherit;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 2px solid transparent;
+    transition: all 0.15s;
+}
+
+.sidebar-tab:hover {
+    color: #ccc;
+}
+
+.sidebar-tab.active {
+    color: #fff;
+    border-bottom-color: var(--accent);
+}
+
+.sidebar-panel {
+    display: none;
+    flex: 1;
+    overflow-y: auto;
+}
+
+.sidebar-panel.active {
+    display: block;
+}
+
+.badge {
+    display: inline-block;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    border-radius: 8px;
+    background: #f14c4c;
+    color: #fff;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 16px;
+    text-align: center;
+}
+
+.badge.hidden {
+    display: none;
+}
+
+/* ── File List ────────────────────────────────────────────────────────────── */
+
+.file-item {
+    padding: 4px 12px;
+    cursor: pointer;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text);
+    transition: background 0.1s;
+}
+
+.file-item:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.file-item.active {
+    background: rgba(0, 120, 212, 0.2);
+    color: #fff;
+}
+
+.file-item .file-icon {
+    font-size: 14px;
+    opacity: 0.7;
+}
+
+/* ── Diagnostics Panel ────────────────────────────────────────────────────── */
+
+.diag-group-header {
+    padding: 4px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(0, 0, 0, 0.15);
+}
+
+.diag-item {
+    padding: 4px 12px;
+    cursor: pointer;
+    font-size: 12px;
+    line-height: 1.4;
+    transition: background 0.1s;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.diag-item:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.diag-item .diag-message {
+    color: var(--text);
+}
+
+.diag-item .diag-location {
+    color: #666;
+    font-size: 11px;
+    margin-top: 1px;
+}
+
+.diag-item.sev-error .diag-message {
+    color: #f14c4c;
+}
+
+.diag-item.sev-warning .diag-message {
+    color: #cca700;
+}
+
+.diag-item.sev-info .diag-message {
+    color: #3794ff;
+}
+
+.diag-item.sev-hint .diag-message {
+    color: #888;
+}
+
+.diag-empty {
+    padding: 16px 12px;
+    font-size: 12px;
+    color: #666;
+    text-align: center;
+}
+
+/* ── Footer ───────────────────────────────────────────────────────────────── */
 
 footer {
     padding: 4px 16px;
@@ -91,19 +257,11 @@ footer {
     font-size: 12px;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 12px;
 }
 
 #status {
     color: #888;
-}
-
-#status.connected {
-    color: #4ec966;
-}
-
-#status.error {
-    color: #f14c4c;
 }
 
 #status.connected {
@@ -112,4 +270,123 @@ footer {
 
 #status.error {
     color: #f44747;
+}
+
+#status-diagnostics {
+    margin-left: auto;
+    font-size: 12px;
+    color: #888;
+}
+
+#status-diagnostics.error {
+    color: #f14c4c;
+}
+
+#status-diagnostics.warning {
+    color: #cca700;
+}
+
+/* ── Toast Notifications ──────────────────────────────────────────────────── */
+
+#toast-container {
+    position: fixed;
+    top: 12px;
+    right: 12px;
+    z-index: 10000;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    pointer-events: none;
+}
+
+.toast {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    min-width: 280px;
+    max-width: 420px;
+    padding: 10px 14px;
+    border-radius: 4px;
+    background: #252526;
+    border: 1px solid var(--border);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+    font-size: 13px;
+    color: var(--text);
+    opacity: 0;
+    transform: translateX(100%);
+    transition: opacity 0.2s, transform 0.3s ease-out;
+    pointer-events: auto;
+}
+
+.toast-visible {
+    opacity: 1;
+    transform: translateX(0);
+}
+
+.toast-info {
+    border-left: 3px solid #3794ff;
+}
+
+.toast-warning {
+    border-left: 3px solid #cca700;
+}
+
+.toast-error {
+    border-left: 3px solid #f14c4c;
+}
+
+.toast-icon {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    margin-top: 1px;
+}
+
+.toast-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.toast-message {
+    word-break: break-word;
+}
+
+.toast-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 6px;
+}
+
+.toast-action {
+    padding: 2px 8px;
+    border: 1px solid var(--accent);
+    border-radius: 2px;
+    background: transparent;
+    color: var(--accent);
+    font-size: 12px;
+    cursor: pointer;
+    font-family: inherit;
+}
+
+.toast-action:hover {
+    background: rgba(0, 120, 212, 0.15);
+}
+
+.toast-close {
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    border: none;
+    background: transparent;
+    color: #888;
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 20px;
+    text-align: center;
+    border-radius: 2px;
+}
+
+.toast-close:hover {
+    color: #fff;
+    background: rgba(255, 255, 255, 0.1);
 }

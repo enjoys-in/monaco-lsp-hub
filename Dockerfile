@@ -73,11 +73,6 @@ RUN ZLS_VER=$(curl -fsSL https://api.github.com/repos/zigtools/zls/releases/late
 RUN curl -fsSL https://github.com/clojure-lsp/clojure-lsp/releases/latest/download/clojure-lsp-native-static-linux-amd64.zip \
     -o /tmp/clj-lsp.zip && unzip /tmp/clj-lsp.zip -d /usr/local/bin && rm /tmp/clj-lsp.zip
 
-# ── Nix: nil ─────────────────────────────────────────────────────────────────
-RUN NIL_VER=$(curl -fsSL https://api.github.com/repos/oxalica/nil/releases/latest | grep -oP '"tag_name":\s*"\K[^"]+') \
-    && curl -fsSL "https://github.com/oxalica/nil/releases/download/${NIL_VER}/nil-${NIL_VER}-x86_64-linux.tar.gz" \
-    | tar -xz -C /usr/local/bin
-
 # ── Helm: helm-ls ───────────────────────────────────────────────────────────
 RUN curl -fsSL "https://github.com/mrjosh/helm-ls/releases/latest/download/helm_ls_linux_amd64" \
     -o /usr/local/bin/helm_ls && chmod +x /usr/local/bin/helm_ls
@@ -205,9 +200,6 @@ COPY --from=systools /usr/local/bin/zls /usr/local/bin/zls
 
 # Clojure: clojure-lsp
 COPY --from=systools /usr/local/bin/clojure-lsp /usr/local/bin/clojure-lsp
-
-# Nix: nil
-COPY --from=systools /usr/local/bin/nil /usr/local/bin/nil
 
 # Helm: helm-ls
 COPY --from=systools /usr/local/bin/helm_ls /usr/local/bin/helm_ls
