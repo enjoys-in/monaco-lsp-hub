@@ -243,11 +243,13 @@ COPY --from=systools /usr/local/bin/solargraph /usr/local/bin/solargraph
 COPY --from=systools /usr/local/bin/phpactor /usr/local/bin/phpactor
 
 # ── Copy app and install npm deps ────────────────────────────────────────────
+# NOTE: Do NOT copy root package.json (it has "workspaces" which causes bun to
+# hoist deps to /app/node_modules/ instead of /app/packages/server/node_modules/).
+# The server's resolveNpmBin() expects bins at packages/server/node_modules/.bin/.
 
-COPY package.json bun.lock* ./
 COPY packages/server/package.json ./packages/server/
 
-RUN rm -f bun.lock && cd packages/server && bun install --production
+RUN cd packages/server && bun install --production
 
 # Copy built client
 COPY --from=builder /app/packages/client/dist ./packages/client/dist

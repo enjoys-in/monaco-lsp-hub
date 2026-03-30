@@ -1,6 +1,7 @@
 // Server definitions: NPM-installed, system-detected, and alias mappings
 
 import { execSync } from "child_process";
+import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
@@ -24,7 +25,13 @@ interface SystemServerDef {
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function resolveNpmBin(_pkg: string, bin: string): string {
-    return path.resolve(PKG_ROOT, "node_modules", ".bin", bin);
+    // Primary: local node_modules (non-hoisted / production standalone install)
+    const local = path.resolve(PKG_ROOT, "node_modules", ".bin", bin);
+    if (fs.existsSync(local)) return local;
+    // Fallback: workspace-hoisted root node_modules
+    const hoisted = path.resolve(PKG_ROOT, "..", "..", "node_modules", ".bin", bin);
+    if (fs.existsSync(hoisted)) return hoisted;
+    return local; // return primary path even if missing (error will surface at spawn)
 }
 
 function findSystemBin(bin: string): string | null {
