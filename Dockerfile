@@ -63,11 +63,11 @@ RUN TEXLAB_VER=$(curl -fsSL https://api.github.com/repos/latex-lsp/texlab/releas
 RUN TFLS_VER=$(curl -fsSL https://api.github.com/repos/hashicorp/terraform-ls/releases/latest | grep -oP '"tag_name":\s*"v?\K[^"]+') \
     && curl -fsSL "https://releases.hashicorp.com/terraform-ls/${TFLS_VER}/terraform-ls_${TFLS_VER}_linux_amd64.zip" \
         -o /tmp/tfls.zip \
-    && unzip /tmp/tfls.zip -d /usr/local/bin && rm /tmp/tfls.zip
+    && unzip -o /tmp/tfls.zip -d /usr/local/bin && rm /tmp/tfls.zip
 RUN TF_VER=$(curl -fsSL https://api.github.com/repos/hashicorp/terraform/releases/latest | grep -oP '"tag_name":\s*"v?\K[^"]+') \
     && curl -fsSL "https://releases.hashicorp.com/terraform/${TF_VER}/terraform_${TF_VER}_linux_amd64.zip" \
         -o /tmp/tf.zip \
-    && unzip /tmp/tf.zip -d /usr/local/bin && rm /tmp/tf.zip
+    && unzip -o /tmp/tf.zip -d /usr/local/bin && rm /tmp/tf.zip
 
 # ── Zig: zls ─────────────────────────────────────────────────────────────────
 RUN ZLS_VER=$(curl -fsSL https://api.github.com/repos/zigtools/zls/releases/latest | grep -oP '"tag_name":\s*"\K[^"]+') \
@@ -76,7 +76,7 @@ RUN ZLS_VER=$(curl -fsSL https://api.github.com/repos/zigtools/zls/releases/late
 
 # ── Clojure: clojure-lsp ────────────────────────────────────────────────────
 RUN curl -fsSL https://github.com/clojure-lsp/clojure-lsp/releases/latest/download/clojure-lsp-native-static-linux-amd64.zip \
-    -o /tmp/clj-lsp.zip && unzip /tmp/clj-lsp.zip -d /usr/local/bin && rm /tmp/clj-lsp.zip
+    -o /tmp/clj-lsp.zip && unzip -o /tmp/clj-lsp.zip -d /usr/local/bin && rm /tmp/clj-lsp.zip
 
 # ── Helm: helm CLI + helm-ls ─────────────────────────────────────────────────
 # helm-ls needs `helm` on PATH for template rendering and linting
@@ -120,7 +120,7 @@ RUN chmod +x /usr/local/bin/jdtls
 RUN KLS_VER=$(curl -fsSL https://api.github.com/repos/fwcd/kotlin-language-server/releases/latest | grep -oP '"tag_name":\s*"\K[^"]+') \
     && curl -fsSL "https://github.com/fwcd/kotlin-language-server/releases/download/${KLS_VER}/server.zip" \
         -o /tmp/kls.zip \
-    && unzip /tmp/kls.zip -d /opt && mv /opt/server /opt/kotlin-language-server && rm /tmp/kls.zip
+    && unzip -o /tmp/kls.zip -d /opt && mv /opt/server /opt/kotlin-language-server && rm /tmp/kls.zip
 RUN ln -s /opt/kotlin-language-server/bin/kotlin-language-server /usr/local/bin/kotlin-language-server
 
 # ── Scala: metals ────────────────────────────────────────────────────────────
@@ -141,7 +141,7 @@ RUN chmod +x /usr/local/bin/lemminx
 # ── Dart: Dart SDK ───────────────────────────────────────────────────────────
 RUN curl -fsSL "https://storage.googleapis.com/dart-archive/channels/stable/release/latest/sdk/dartsdk-linux-x64-release.zip" \
     -o /tmp/dart.zip \
-    && unzip /tmp/dart.zip -d /opt && rm /tmp/dart.zip
+    && unzip -o /tmp/dart.zip -d /opt && rm /tmp/dart.zip
 ENV PATH="/opt/dart-sdk/bin:${PATH}"
 
 # ── Python-based LSP servers (pip) ───────────────────────────────────────────
