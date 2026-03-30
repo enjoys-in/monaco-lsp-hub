@@ -1,0 +1,18 @@
+{
+  "name": "monaco-lsp-hub",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "dev:client": "bun run --cwd packages/client dev",
+    "dev:server": "bun run --cwd packages/server dev",
+    "dev": "bun --filter '*' dev",
+    "build:client": "bun run --cwd packages/client build",
+    "build:server": "bun run --cwd packages/server build",
+    "build": "bun run build:client && bun run build:server",
+    "start": "bun run --cwd packages/server start",
+    "docker:build": "docker compose build",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down"
+  }
+}

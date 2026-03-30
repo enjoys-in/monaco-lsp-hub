@@ -1,0 +1,19 @@
+services:
+  monaco-lsp-hub:
+    build: .
+    container_name: monaco-lsp-hub
+    ports:
+      - "${PORT:-9601}:9601"
+    environment:
+      - PORT=9601
+      - NODE_ENV=production
+    restart: unless-stopped
+    # Resource limits — increased for 14 language servers
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: "4.0"
+        reservations:
+          memory: 1G
+          cpus: "1.0"

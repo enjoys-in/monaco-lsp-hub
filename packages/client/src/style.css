@@ -1,0 +1,115 @@
+:root {
+    --bg: #1e1e1e;
+    --surface: #252526;
+    --border: #3c3c3c;
+    --text: #cccccc;
+    --accent: #0078d4;
+    --accent-hover: #1a8fff;
+    --tab-active: #1e1e1e;
+    --tab-inactive: #2d2d2d;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    overflow: hidden;
+}
+
+#app {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+
+header {
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+}
+
+header h1 {
+    font-size: 18px;
+    font-weight: 600;
+    color: #fff;
+}
+
+header .subtitle {
+    font-size: 13px;
+    color: #888;
+}
+
+#language-tabs {
+    display: flex;
+    background: var(--tab-inactive);
+    border-bottom: 1px solid var(--border);
+    padding: 0 8px;
+    gap: 2px;
+}
+
+.tab {
+    padding: 8px 20px;
+    border: none;
+    background: transparent;
+    color: #999;
+    cursor: pointer;
+    font-size: 13px;
+    font-family: inherit;
+    border-bottom: 2px solid transparent;
+    transition: all 0.15s;
+}
+
+.tab:hover {
+    color: #ddd;
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.tab.active {
+    color: #fff;
+    background: var(--tab-active);
+    border-bottom-color: var(--accent);
+}
+
+#editor-container {
+    flex: 1;
+    overflow: hidden;
+}
+
+footer {
+    padding: 4px 16px;
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+#status {
+    color: #888;
+}
+
+#status.connected {
+    color: #4ec966;
+}
+
+#status.error {
+    color: #f14c4c;
+}
+
+#status.connected {
+    color: #4ec9b0;
+}
+
+#status.error {
+    color: #f44747;
+}
