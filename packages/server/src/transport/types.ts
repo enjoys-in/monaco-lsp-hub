@@ -6,6 +6,16 @@ import type { LspMessage } from "../lsp/types.js";
 
 export type TransportType = "raw" | "jsonrpc";
 
+/** Server→client requests the client doesn't handle — auto-respond with null result */
+export const AUTO_RESPOND_METHODS = new Set([
+    "workspace/diagnostic/refresh",
+    "workspace/semanticTokens/refresh",
+    "workspace/inlineValue/refresh",
+    "workspace/codeLens/refresh",
+    "workspace/inlayHint/refresh",
+    "workspace/foldingRange/refresh",
+]);
+
 export interface TransportBridge {
     start(): void;
     dispose(): void;

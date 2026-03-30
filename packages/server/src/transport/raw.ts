@@ -1,7 +1,7 @@
 // Raw WebSocket transport: manual Content-Length framing for stdio
 
 import type { WebSocket } from "ws";
-import type { TransportBridge, RawTransportOptions } from "./types.js";
+import { AUTO_RESPOND_METHODS, type TransportBridge, type RawTransportOptions } from "./types.js";
 import type { LspMessage } from "../lsp/types.js";
 
 export class RawTransportBridge implements TransportBridge {
@@ -59,7 +59,17 @@ export class RawTransportBridge implements TransportBridge {
 
             if (ws.readyState === ws.OPEN) {
                 try {
-                    const parsed = JSON.parse(body);
+                    const parsed: LspMessage = JSON.parse(body);
+
+                    // Auto-respond to server→client requests the client can't handle
+                    if (parsed.id !== undefined && parsed.method && AUTO_RESPOND_METHODS.has(parsed.method)) {
+                        const { serverProcess } = this.opts;
+                        const resp = JSON.stringify({ jsonrpc: "2.0", id: parsed.id, result: null });
+                        const byteLen = Buffer.byteLength(resp, "utf-8");
+                        serverProcess.stdin?.write(`Content-Length: ${byteLen}\r\n\r\n${resp}`);
+                        continue;
+                    }
+
                     const transformed = processServerMessage(parsed);
                     ws.send(JSON.stringify(transformed));
                 } catch {

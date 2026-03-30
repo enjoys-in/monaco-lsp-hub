@@ -96,7 +96,11 @@ export function launchLanguageServer(
 
     // ── Stderr logging (raw mode only — jsonrpc mode has the process inside) ─
     serverProcess?.stderr?.on("data", (data: Buffer) => {
-        console.error(`[LSP:${config.name}:stderr]`, data.toString().trim());
+        const text = data.toString().trim();
+        if (!text) return;
+        // Truncate noisy stderr (e.g. Pyright dumps minified source maps)
+        const line = text.length > 500 ? text.substring(0, 500) + "... [truncated]" : text;
+        console.error(`[LSP:${config.name}:stderr]`, line);
     });
 
     // ── Cleanup ──────────────────────────────────────────────────────────────

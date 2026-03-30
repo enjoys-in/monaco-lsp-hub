@@ -8,7 +8,7 @@ import {
     type IWebSocket,
 } from "vscode-ws-jsonrpc";
 import { createServerProcess, type IConnection } from "vscode-ws-jsonrpc/server";
-import type { TransportBridge, JsonRpcTransportOptions } from "./types.js";
+import { AUTO_RESPOND_METHODS, type TransportBridge, type JsonRpcTransportOptions } from "./types.js";
 import type { LspMessage } from "../lsp/types.js";
 
 /** Adapt a `ws` WebSocket into the IWebSocket interface expected by vscode-ws-jsonrpc */
@@ -77,6 +77,14 @@ export class JsonRpcTransportBridge implements TransportBridge {
         serverConn.reader.listen((message) => {
             const msg = message as LspMessage;
             console.log(`[JsonRpc:${serverName}] S→C: ${msg.method ?? `response:${msg.id}`}`);
+
+            // Auto-respond to server→client requests the client can't handle
+            if (msg.id !== undefined && msg.method && AUTO_RESPOND_METHODS.has(msg.method)) {
+                console.log(`[JsonRpc:${serverName}] Auto-respond: ${msg.method}`);
+                serverConn.writer.write({ jsonrpc: "2.0", id: msg.id, result: null } as LspMessage).catch(() => {});
+                return;
+            }
+
             const transformed = processServerMessage(msg);
             this.wsWriter!.write(transformed).catch((err) => {
                 console.error(`[JsonRpc:${serverName}] Write to WS failed:`, err);
