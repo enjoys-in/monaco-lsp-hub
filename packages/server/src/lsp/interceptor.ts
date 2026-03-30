@@ -29,10 +29,7 @@ export interface MessageInterceptor {
 }
 
 export function createInterceptor(workspace: Workspace): MessageInterceptor {
-    const { dir, uri, virtualToReal, realToVirtual, rewriteUris, syncFile, removeFile } = workspace;
-
-    // Track file contents for incremental sync
-    const fileContents = new Map<string, string>();
+    const { dir, uri, virtualToReal, realToVirtual, rewriteUris, syncFile, removeFile, reclaimFile, getFileContent } = workspace;
 
     function processClientMessage(msg: any): any {
         // initialize: rewrite rootUri / rootPath / workspaceFolders to real temp dir
@@ -49,10 +46,12 @@ export function createInterceptor(workspace: Workspace): MessageInterceptor {
             msg.params = rewriteUris(msg.params, virtualToReal);
         }
 
-        // textDocument/didOpen — sync file content to disk
+        // textDocument/didOpen — reclaim from cache or sync to disk
         if (msg.method === "textDocument/didOpen" && msg.params?.textDocument) {
             const { uri: docUri, text } = msg.params.textDocument;
-            fileContents.set(docUri, text);
+            // Cancel pending removal — if cached content + disk file still exist,
+            // syncFile will skip the write (hash match). Instant reopen.
+            reclaimFile(docUri);
             syncFile(docUri, text);
         }
 
@@ -61,24 +60,20 @@ export function createInterceptor(workspace: Workspace): MessageInterceptor {
             const docUri = msg.params.textDocument.uri;
             const changes = msg.params.contentChanges;
             if (changes) {
-                let content = fileContents.get(docUri) ?? "";
+                let content = getFileContent(docUri) ?? "";
                 for (const change of changes) {
                     if (change.range === undefined) {
-                        // Full document replacement
                         content = change.text;
                     } else {
-                        // Incremental change — apply range edit
                         content = applyTextEdit(content, change.range, change.text);
                     }
                 }
-                fileContents.set(docUri, content);
                 syncFile(docUri, content);
             }
         }
 
         // textDocument/didClose — remove temp file
         if (msg.method === "textDocument/didClose" && msg.params?.textDocument) {
-            fileContents.delete(msg.params.textDocument.uri);
             removeFile(msg.params.textDocument.uri);
         }
 
