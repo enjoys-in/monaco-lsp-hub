@@ -79,8 +79,8 @@ RUN curl -fsSL "https://github.com/mrjosh/helm-ls/releases/latest/download/helm_
 
 # ── Grammar: harper-ls ──────────────────────────────────────────────────────
 RUN HARPER_VER=$(curl -fsSL https://api.github.com/repos/Automattic/harper/releases/latest | grep -oP '"tag_name":\s*"v?\K[^"]+') \
-    && curl -fsSL "https://github.com/Automattic/harper/releases/download/v${HARPER_VER}/harper-ls-x86_64-unknown-linux-gnu" \
-    -o /usr/local/bin/harper-ls && chmod +x /usr/local/bin/harper-ls
+    && curl -fsSL "https://github.com/Automattic/harper/releases/download/v${HARPER_VER}/harper-ls-x86_64-unknown-linux-gnu.tar.gz" \
+    | tar -xz -C /usr/local/bin harper-ls && chmod +x /usr/local/bin/harper-ls
 
 # ── JRE 21 (for JVM-based language servers) ──────────────────────────────────
 RUN curl -fsSL "https://api.adoptium.net/v3/binary/latest/21/ga/linux/x64/jre/hotspot/normal/eclipse" \

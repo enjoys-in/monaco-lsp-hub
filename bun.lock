@@ -17,6 +17,20 @@
         "vite": "^6.0.0",
       },
     },
+    "packages/client2": {
+      "name": "@monaco-lsp-hub/client2",
+      "version": "1.0.0",
+      "dependencies": {
+        "@hediet/json-rpc": "^0.5.0",
+        "@hediet/json-rpc-websocket": "^0.5.1",
+        "@monaco-editor/loader": "^1.7.0",
+        "monaco-editor": "^0.55.1",
+      },
+      "devDependencies": {
+        "typescript": "^5.7.0",
+        "vite": "^6.0.0",
+      },
+    },
     "packages/server": {
       "name": "@monaco-lsp-hub/server",
       "version": "1.0.0",
@@ -282,6 +296,10 @@
 
     "@graphql-typed-document-node/core": ["@graphql-typed-document-node/core@3.2.0", "", { "peerDependencies": { "graphql": "^0.8.0 || ^0.9.0 || ^0.10.0 || ^0.11.0 || ^0.12.0 || ^0.13.0 || ^14.0.0 || ^15.0.0 || ^16.0.0 || ^17.0.0" } }, "sha512-mB9oAsNCm9aM3/SOv4YtBMqZbYj10R7dkq8byBqxGY/ncFwhf2oQzMV+LCRlWoDSEBJ3COiR1yeDvMtsoOsuFQ=="],
 
+    "@hediet/json-rpc": ["@hediet/json-rpc@0.5.0", "", {}, "sha512-SApO7NbKJztClcznEqg46ZGQzO2v3Q3gVIuRVC9QE/m75J/5AipJdclxEXgT++7j4x4LI2JjEpf2xhi67Ngu9A=="],
+
+    "@hediet/json-rpc-websocket": ["@hediet/json-rpc-websocket@0.5.1", "", { "dependencies": { "@hediet/json-rpc": "^0.5.0", "@types/ws": "^6.0.4", "isomorphic-ws": "^5.0.0" } }, "sha512-1H9UjKyR00ZjwcReQdzTxyEoZKaEubeOvxBVrwHGo4n9HeQt6SvQgtef+1AJ9MT7/sV2Qfe0VWarYivx6BWgIA=="],
+
     "@iarna/toml": ["@iarna/toml@2.2.5", "", {}, "sha512-trnsAYxU3xnS1gPHPyU961coFyLkh4gAD/0zQ5mymY4yOZ+CYvsPqUbOFSw0aDM4y0tV7tiFxL/1XfXPNC6IPg=="],
 
     "@isaacs/cliui": ["@isaacs/cliui@8.0.2", "", { "dependencies": { "string-width": "^5.1.2", "string-width-cjs": "npm:string-width@^4.2.0", "strip-ansi": "^7.0.1", "strip-ansi-cjs": "npm:strip-ansi@^6.0.1", "wrap-ansi": "^8.1.0", "wrap-ansi-cjs": "npm:wrap-ansi@^7.0.0" } }, "sha512-O8jcjabXaleOG9DQ0+ARXWZBTfnP4WNAqzuiJK7ll44AmxGKv/J2M4TPjxjY3znBCfvBXFzucm1twdyFybFqEA=="],
@@ -331,6 +349,8 @@
     "@monaco-editor/loader": ["@monaco-editor/loader@1.7.0", "", { "dependencies": { "state-local": "^1.0.6" } }, "sha512-gIwR1HrJrrx+vfyOhYmCZ0/JcWqG5kbfG7+d3f/C1LXk2EvzAbHSg3MQ5lO2sMlo9izoAZ04shohfKLVT6crVA=="],
 
     "@monaco-lsp-hub/client": ["@monaco-lsp-hub/client@workspace:packages/client"],
+
+    "@monaco-lsp-hub/client2": ["@monaco-lsp-hub/client2@workspace:packages/client2"],
 
     "@monaco-lsp-hub/server": ["@monaco-lsp-hub/server@workspace:packages/server"],
 
@@ -2067,6 +2087,8 @@
     "@graphql-tools/utils/tslib": ["tslib@2.8.1", "", {}, "sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w=="],
 
     "@graphql-tools/wrap/tslib": ["tslib@2.8.1", "", {}, "sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w=="],
+
+    "@hediet/json-rpc-websocket/@types/ws": ["@types/ws@6.0.4", "", { "dependencies": { "@types/node": "*" } }, "sha512-PpPrX7SZW9re6+Ha8ojZG4Se8AZXgf0GK6zmfqEuCsY49LFDNXO3SByp44X3dFEqtB73lkCDAdUazhAjVPiNwg=="],
 
     "@isaacs/cliui/string-width": ["string-width@5.1.2", "", { "dependencies": { "eastasianwidth": "^0.2.0", "emoji-regex": "^9.2.2", "strip-ansi": "^7.0.1" } }, "sha512-HnLOCR3vjcY8beoNLtcjZ5/nxn2afmME6lhrDrebokqMap+XbeW8n9TXpPDOqdGK5qcI3oT0GKTW6wC7EMiVqA=="],
 

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Monaco LSP Hub (client2)</title>
+        <link rel="stylesheet" href="/src/style.css" />
+    </head>
+    <body>
+        <div id="app">
+            <header>
+                <h1>Monaco LSP Hub</h1>
+                <p class="subtitle">client2 — @hediet/json-rpc transport</p>
+            </header>
+
+            <nav id="language-tabs">
+                <button class="tab active" data-lang="json">JSON</button>
+                <button class="tab" data-lang="html">HTML</button>
+                <button class="tab" data-lang="css">CSS</button>
+                <button class="tab" data-lang="markdown">Markdown</button>
+                <button class="tab" data-lang="yaml">YAML</button>
+                <button class="tab" data-lang="typescript">TypeScript</button>
+                <button class="tab" data-lang="python">Python</button>
+                <button class="tab" data-lang="bash">Bash</button>
+                <button class="tab" data-lang="dockerfile">Dockerfile</button>
+                <button class="tab" data-lang="rust">Rust</button>
+                <button class="tab" data-lang="go">Go</button>
+                <button class="tab" data-lang="java">Java</button>
+                <button class="tab" data-lang="lua">Lua</button>
+                <button class="tab" data-lang="c">C/C++</button>
+            </nav>
+
+            <div id="editor-container"></div>
+
+            <footer>
+                <span id="status">Connecting...</span>
+            </footer>
+        </div>
+
+        <script type="module" src="/src/main.ts"></script>
+    </body>
+</html>
