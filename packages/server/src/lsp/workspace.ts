@@ -52,7 +52,9 @@ export function createWorkspace(): Workspace {
         if (obj && typeof obj === "object") {
             const out: any = {};
             for (const [k, v] of Object.entries(obj)) {
-                out[k] = rewriteUris(v, rewriter);
+                // Rewrite keys that are file:// URIs (e.g. WorkspaceEdit.changes)
+                const rewrittenKey = k.startsWith("file://") ? rewriter(k) : k;
+                out[rewrittenKey] = rewriteUris(v, rewriter);
             }
             return out;
         }

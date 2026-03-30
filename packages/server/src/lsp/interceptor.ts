@@ -3,6 +3,26 @@
 
 import type { Workspace } from "./workspace.js";
 
+/** Apply an incremental LSP text edit (range + newText) to a string */
+function applyTextEdit(
+    content: string,
+    range: { start: { line: number; character: number }; end: { line: number; character: number } },
+    newText: string,
+): string {
+    const lines = content.split("\n");
+    const startOffset = linesToOffset(lines, range.start.line, range.start.character);
+    const endOffset = linesToOffset(lines, range.end.line, range.end.character);
+    return content.substring(0, startOffset) + newText + content.substring(endOffset);
+}
+
+function linesToOffset(lines: string[], line: number, character: number): number {
+    let offset = 0;
+    for (let i = 0; i < line && i < lines.length; i++) {
+        offset += lines[i].length + 1; // +1 for \n
+    }
+    return offset + character;
+}
+
 export interface MessageInterceptor {
     processClientMessage(msg: any): any;
     processServerMessage(msg: any): any;
@@ -10,6 +30,9 @@ export interface MessageInterceptor {
 
 export function createInterceptor(workspace: Workspace): MessageInterceptor {
     const { dir, uri, virtualToReal, realToVirtual, rewriteUris, syncFile, removeFile } = workspace;
+
+    // Track file contents for incremental sync
+    const fileContents = new Map<string, string>();
 
     function processClientMessage(msg: any): any {
         // initialize: rewrite rootUri / rootPath / workspaceFolders to real temp dir
@@ -29,21 +52,33 @@ export function createInterceptor(workspace: Workspace): MessageInterceptor {
         // textDocument/didOpen — sync file content to disk
         if (msg.method === "textDocument/didOpen" && msg.params?.textDocument) {
             const { uri: docUri, text } = msg.params.textDocument;
+            fileContents.set(docUri, text);
             syncFile(docUri, text);
         }
 
-        // textDocument/didChange — sync full-document content updates
+        // textDocument/didChange — sync content updates (full and incremental)
         if (msg.method === "textDocument/didChange" && msg.params) {
             const docUri = msg.params.textDocument.uri;
             const changes = msg.params.contentChanges;
-            const fullChange = changes?.find((c: any) => c.range === undefined);
-            if (fullChange) {
-                syncFile(docUri, fullChange.text);
+            if (changes) {
+                let content = fileContents.get(docUri) ?? "";
+                for (const change of changes) {
+                    if (change.range === undefined) {
+                        // Full document replacement
+                        content = change.text;
+                    } else {
+                        // Incremental change — apply range edit
+                        content = applyTextEdit(content, change.range, change.text);
+                    }
+                }
+                fileContents.set(docUri, content);
+                syncFile(docUri, content);
             }
         }
 
         // textDocument/didClose — remove temp file
         if (msg.method === "textDocument/didClose" && msg.params?.textDocument) {
+            fileContents.delete(msg.params.textDocument.uri);
             removeFile(msg.params.textDocument.uri);
         }
 
@@ -57,6 +92,10 @@ export function createInterceptor(workspace: Workspace): MessageInterceptor {
         }
         if (msg.params) {
             msg.params = rewriteUris(msg.params, realToVirtual);
+        }
+        // Rewrite URIs in error responses (e.g. error.data may contain file paths)
+        if (msg.error?.data !== undefined) {
+            msg.error.data = rewriteUris(msg.error.data, realToVirtual);
         }
         return msg;
     }

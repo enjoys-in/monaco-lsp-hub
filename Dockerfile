@@ -50,7 +50,7 @@ RUN curl -fsSL -o /usr/local/bin/marksman \
     && chmod +x /usr/local/bin/marksman
 
 # ── TOML: taplo ──────────────────────────────────────────────────────────────
-RUN curl -fsSL https://github.com/tamasfe/taplo/releases/latest/download/taplo-full-linux-x86_64.gz \
+RUN curl -fsSL https://github.com/tamasfe/taplo/releases/latest/download/taplo-linux-x86_64.gz \
     | gunzip > /usr/local/bin/taplo && chmod +x /usr/local/bin/taplo
 
 # ── LaTeX: texlab ────────────────────────────────────────────────────────────
