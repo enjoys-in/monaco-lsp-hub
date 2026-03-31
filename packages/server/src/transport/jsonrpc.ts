@@ -66,7 +66,6 @@ export class JsonRpcTransportBridge implements TransportBridge {
         // Forward: WS → process (client → server) with interception
         this.wsReader.listen((message) => {
             const msg = message as LspMessage;
-            console.log(`[JsonRpc:${serverName}] C→S: ${msg.method ?? `response:${msg.id}`}`);
             const transformed = processClientMessage(msg);
             serverConn.writer.write(transformed).catch((err) => {
                 console.error(`[JsonRpc:${serverName}] Write to server failed:`, err);
@@ -76,7 +75,6 @@ export class JsonRpcTransportBridge implements TransportBridge {
         // Forward: process → WS (server → client) with interception
         serverConn.reader.listen((message) => {
             const msg = message as LspMessage;
-            console.log(`[JsonRpc:${serverName}] S→C: ${msg.method ?? `response:${msg.id}`}`);
 
             // Auto-respond to server→client requests the client can't handle
             if (msg.id !== undefined && msg.method && AUTO_RESPOND_METHODS.has(msg.method)) {
