@@ -1,3 +1,4 @@
+import * as monaco from "monaco-editor";
 import { IMessageTransport, TypedChannel } from "@hediet/json-rpc";
 import { LspCompletionFeature } from "./features/LspCompletionFeature";
 import { LspHoverFeature } from "./features/LspHoverFeature";
@@ -21,7 +22,10 @@ import { LspSelectionRangeFeature } from "./features/LspSelectionRangeFeature";
 import { LspInlayHintsFeature } from "./features/LspInlayHintsFeature";
 import { LspSemanticTokensFeature } from "./features/LspSemanticTokensFeature";
 import { LspDiagnosticsFeature } from "./features/LspDiagnosticsFeature";
-import { api, type ShowMessageParams, type LogMessageParams, type ShowMessageRequestParams, type MessageActionItem } from "./types";
+import { LspDocumentColorFeature } from "./features/LspDocumentColorFeature";
+import { LspLinkedEditingRangeFeature } from "./features/LspLinkedEditingRangeFeature";
+import { LspRangeSemanticTokensFeature } from "./features/LspRangeSemanticTokensFeature";
+import { api, type ShowMessageParams, type LogMessageParams, type ShowMessageRequestParams, type MessageActionItem, type ApplyWorkspaceEditParams, type ConfigurationParams, type ProgressParams, type WorkDoneProgressCreateParams, type WorkDoneProgressBegin, type WorkDoneProgressReport, type WorkDoneProgressEnd } from "./types";
 import { LspConnection } from "./LspConnection";
 import { LspCapabilitiesRegistry } from './LspCapabilitiesRegistry';
 import { TextDocumentSynchronizer } from "./TextDocumentSynchronizer";
@@ -31,12 +35,14 @@ export interface LspClientCallbacks {
     onShowMessage?: (params: ShowMessageParams) => void;
     onLogMessage?: (params: LogMessageParams) => void;
     onShowMessageRequest?: (params: ShowMessageRequestParams) => Promise<MessageActionItem | null>;
+    onProgress?: (token: string | number, value: WorkDoneProgressBegin | WorkDoneProgressReport | WorkDoneProgressEnd) => void;
 }
 
 export class MonacoLspClient {
     private _connection: LspConnection;
     private readonly _capabilitiesRegistry: LspCapabilitiesRegistry;
     private readonly _bridge: TextDocumentSynchronizer;
+    private _progressTokens = new Set<string | number>();
 
     private _initPromise: Promise<void>;
 
@@ -59,6 +65,33 @@ export class MonacoLspClient {
             clientHandler.windowShowMessageRequest = callbacks.onShowMessageRequest;
         }
 
+        // workspace/applyEdit — server asks client to apply a WorkspaceEdit
+        clientHandler.workspaceApplyEdit = (params: ApplyWorkspaceEditParams) => {
+            return this._applyWorkspaceEdit(params);
+        };
+
+        // workspace/configuration — server pulls config settings
+        clientHandler.workspaceConfiguration = (params: ConfigurationParams) => {
+            return params.items.map(() => ({}));
+        };
+
+        // window/workDoneProgress/create — server registers a progress token
+        clientHandler.windowWorkDoneProgressCreate = (params: WorkDoneProgressCreateParams) => {
+            this._progressTokens.add(params.token);
+            return null;
+        };
+
+        // $/progress — server reports progress for a registered token
+        clientHandler.progress = (params: ProgressParams) => {
+            const value = params.value as unknown as WorkDoneProgressBegin | WorkDoneProgressReport | WorkDoneProgressEnd;
+            if (callbacks.onProgress) {
+                callbacks.onProgress(params.token, value);
+            }
+            if (value.kind === 'end') {
+                this._progressTokens.delete(params.token);
+            }
+        };
+
         const s = api.getServer(c, clientHandler);
         c.startListen();
 
@@ -80,6 +113,47 @@ export class MonacoLspClient {
 
         this._connection.server.initialized({});
         this._capabilitiesRegistry.setServerCapabilities(result.capabilities);
+    }
+
+    private _applyWorkspaceEdit(params: ApplyWorkspaceEditParams): { applied: boolean; failureReason?: string } {
+        try {
+            const edit = params.edit;
+            if (edit.changes) {
+                for (const [uri, edits] of Object.entries(edit.changes)) {
+                    const monacoUri = monaco.Uri.parse(uri);
+                    const model = monaco.editor.getModel(monacoUri);
+                    if (!model) continue;
+                    const monacoEdits = edits.map(e => ({
+                        range: new monaco.Range(
+                            e.range.start.line + 1, e.range.start.character + 1,
+                            e.range.end.line + 1, e.range.end.character + 1,
+                        ),
+                        text: e.newText,
+                    }));
+                    model.pushEditOperations([], monacoEdits, () => null);
+                }
+            }
+            if (edit.documentChanges) {
+                for (const change of edit.documentChanges) {
+                    if ('textDocument' in change) {
+                        const monacoUri = monaco.Uri.parse(change.textDocument.uri);
+                        const model = monaco.editor.getModel(monacoUri);
+                        if (!model) continue;
+                        const monacoEdits = change.edits.map(e => ({
+                            range: new monaco.Range(
+                                e.range.start.line + 1, e.range.start.character + 1,
+                                e.range.end.line + 1, e.range.end.character + 1,
+                            ),
+                            text: e.newText,
+                        }));
+                        model.pushEditOperations([], monacoEdits, () => null);
+                    }
+                }
+            }
+            return { applied: true };
+        } catch (err) {
+            return { applied: false, failureReason: String(err) };
+        }
     }
 
     protected createFeatures(): IDisposable {
@@ -107,6 +181,9 @@ export class MonacoLspClient {
         store.add(new LspInlayHintsFeature(this._connection));
         store.add(new LspSemanticTokensFeature(this._connection));
         store.add(new LspDiagnosticsFeature(this._connection));
+        store.add(new LspDocumentColorFeature(this._connection));
+        store.add(new LspLinkedEditingRangeFeature(this._connection));
+        store.add(new LspRangeSemanticTokensFeature(this._connection));
 
         return store;
     }

@@ -65,7 +65,19 @@ class LspDocumentLinkProvider implements monaco.languages.LinkProvider {
             return link;
         }
 
-        // TODO: Implement resolve
-        return link;
+        const result = await this._client.server.documentLinkResolve({
+            range: {
+                start: { line: link.range.startLineNumber - 1, character: link.range.startColumn - 1 },
+                end: { line: link.range.endLineNumber - 1, character: link.range.endColumn - 1 },
+            },
+            target: link.url?.toString(),
+            tooltip: link.tooltip,
+        });
+
+        return {
+            range: link.range,
+            url: result.target ?? link.url,
+            tooltip: result.tooltip ?? link.tooltip,
+        };
     }
 }
