@@ -164,7 +164,7 @@ async function main(): Promise<void> {
         });
     });
 
-    await switchLanguage("json");
+    await switchLanguage("go");
 }
 
 main().catch(console.error);

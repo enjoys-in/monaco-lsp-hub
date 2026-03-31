@@ -4,6 +4,8 @@ A self-hosted, multi-language code editor powered by [Monaco Editor](https://mic
 
 ## Architecture
 
+> **Detailed request flow documentation:** [ARCHITECTURE.md](ARCHITECTURE.md) — traces a single LSP request from browser to language server and back, with file references and function names.
+
 ```
 ┌─────────────────────────────────────────────────────────┐
 │  Browser                                                │

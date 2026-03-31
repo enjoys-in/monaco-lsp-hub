@@ -42,7 +42,7 @@ export function createInterceptor(workspace: Workspace): MessageInterceptor {
 
     function processClientMessage(msg: LspMessage): LspMessage {
         if (!("method" in msg)) return msg; // response message — pass through
-
+        
         // initialize: rewrite rootUri / rootPath / workspaceFolders to real temp dir
         if (msg.method === "initialize" && msg.params) {
             const params = msg.params as InitializeParams;

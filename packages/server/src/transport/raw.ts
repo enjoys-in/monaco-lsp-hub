@@ -7,7 +7,7 @@ import type { LspMessage } from "../lsp/types.js";
 export class RawTransportBridge implements TransportBridge {
     private stdoutBuffer = "";
 
-    constructor(private opts: RawTransportOptions) {}
+    constructor(private opts: RawTransportOptions) { }
 
     start(): void {
         const { ws, serverProcess, processClientMessage, processServerMessage } = this.opts;

@@ -35,7 +35,7 @@ export class JsonRpcTransportBridge implements TransportBridge {
     private wsWriter?: WebSocketMessageWriter;
     private serverConnection?: IConnection;
 
-    constructor(private opts: JsonRpcTransportOptions) {}
+    constructor(private opts: JsonRpcTransportOptions) { }
 
     start(): void {
         const {
@@ -81,11 +81,12 @@ export class JsonRpcTransportBridge implements TransportBridge {
             // Auto-respond to server→client requests the client can't handle
             if (msg.id !== undefined && msg.method && AUTO_RESPOND_METHODS.has(msg.method)) {
                 console.log(`[JsonRpc:${serverName}] Auto-respond: ${msg.method}`);
-                serverConn.writer.write({ jsonrpc: "2.0", id: msg.id, result: null } as LspMessage).catch(() => {});
+                serverConn.writer.write({ jsonrpc: "2.0", id: msg.id, result: null } as LspMessage).catch(() => { });
                 return;
             }
 
             const transformed = processServerMessage(msg);
+
             this.wsWriter!.write(transformed).catch((err) => {
                 console.error(`[JsonRpc:${serverName}] Write to WS failed:`, err);
             });
