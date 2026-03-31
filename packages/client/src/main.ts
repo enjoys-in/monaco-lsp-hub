@@ -9,7 +9,7 @@ import { languages, type LanguageConfig } from "./config.js";
 import { showToast } from "./toast.js";
 import { initExplorer, addFile, setActiveFile, updateDiagnostics, type FileEntry } from "./explorer.js";
 import { createInterceptingTransport } from "./lsp-transport.js";
-
+ 
 const monaco = await loader.init();
 
 type MonacoLsp = typeof import("monaco-editor/esm/vs/editor/editor.main.js")["lsp"];
@@ -123,7 +123,7 @@ async function connectLanguageClient(langConfig: LanguageConfig): Promise<void> 
     try {
         const url = getWebSocketUrl(langConfig.id);
         const rawTransport = await lsp.WebSocketTransport.connectTo({ address: url });
-
+        
         const transport = createInterceptingTransport(rawTransport, {
             onDiagnostics: (uri) => {
                 setTimeout(() => {
