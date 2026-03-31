@@ -1,5 +1,5 @@
 import * as monaco from 'monaco-editor';
-import { capabilities, CompletionRegistrationOptions, MarkupContent, CompletionItem, TextDocumentPositionParams } from '../types';
+import { capabilities, CompletionRegistrationOptions, MarkupContent, MarkupKind, CompletionItem, TextDocumentPositionParams } from '../types';
 import { assertTargetTextModel, ITextModelBridge } from '../ITextModelBridge';
 import { Disposable } from '../utils';
 import { LspConnection } from '../LspConnection';
@@ -32,6 +32,7 @@ export class LspCompletionFeature extends Disposable {
                         tagSupport: {
                             valueSet: Array.from(lspCompletionItemTagToMonacoCompletionItemTag.keys()),
                         },
+                        documentationFormat: [MarkupKind.Markdown, MarkupKind.PlainText],
                         commitCharactersSupport: true,
                         deprecatedSupport: true,
                         preselectSupport: true,
