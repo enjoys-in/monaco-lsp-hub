@@ -334,7 +334,7 @@ export function toMonacoInlayHintKind(kind: InlayHintKind | undefined): monaco.l
 }
 export function toMonacoLanguageSelector(s: DocumentSelector | null): monaco.languages.LanguageSelector {
     if (!s || s.length === 0) {
-        return { language: '*' };
+        return '*';
     }
     return s.map<monaco.languages.LanguageFilter>(s => {
         if ('notebook' in s) {

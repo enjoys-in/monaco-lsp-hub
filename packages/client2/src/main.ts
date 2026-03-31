@@ -3,16 +3,28 @@
 // Uses @hediet/json-rpc-websocket transport + MonacoLspClient from
 // microsoft/monaco-editor/monaco-lsp-client reference implementation.
 
-import loader from "@monaco-editor/loader";
-import type * as Monaco from "monaco-editor";
+import * as monaco from "monaco-editor";
+import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
+import jsonWorker from "monaco-editor/esm/vs/language/json/json.worker?worker";
+import cssWorker from "monaco-editor/esm/vs/language/css/css.worker?worker";
+import htmlWorker from "monaco-editor/esm/vs/language/html/html.worker?worker";
+import tsWorker from "monaco-editor/esm/vs/language/typescript/ts.worker?worker";
 import { WebSocketTransport } from "@hediet/json-rpc-websocket";
 import { MonacoLspClient } from "./lsp/LspClient";
 import { languages, type LanguageConfig } from "./config";
 import { showToast, lspMessageTypeToToast } from "./toast";
 
-const monaco = await loader.init();
+self.MonacoEnvironment = {
+    getWorker(_, label) {
+        if (label === "json") return new jsonWorker();
+        if (label === "css" || label === "scss" || label === "less") return new cssWorker();
+        if (label === "html" || label === "handlebars" || label === "razor") return new htmlWorker();
+        if (label === "typescript" || label === "javascript") return new tsWorker();
+        return new editorWorker();
+    },
+};
 
-let editor: Monaco.editor.IStandaloneCodeEditor | null = null;
+let editor: monaco.editor.IStandaloneCodeEditor | null = null;
 let currentClient: MonacoLspClient | null = null;
 let currentTransport: WebSocketTransport | null = null;
 let currentLanguage = "";
@@ -83,6 +95,7 @@ async function connectLanguageClient(langConfig: LanguageConfig): Promise<void> 
         currentTransport = transport;
 
         const client = new MonacoLspClient(transport, {
+
             onShowMessage(params) {
                 showToast({
                     message: params.message,
