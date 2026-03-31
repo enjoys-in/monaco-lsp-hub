@@ -96,6 +96,17 @@ export class MonacoLspClient {
         c.startListen();
 
         this._capabilitiesRegistry = new LspCapabilitiesRegistry(c);
+
+        // Workspace-level capabilities
+        this._capabilitiesRegistry.addStaticClientCapabilities({
+            workspace: {
+                applyEdit: true,
+                workspaceEdit: {
+                    documentChanges: true,
+                },
+            },
+        });
+
         this._bridge = new TextDocumentSynchronizer(s.server, this._capabilitiesRegistry);
 
         this._connection = new LspConnection(s.server, this._bridge, this._capabilitiesRegistry, c);

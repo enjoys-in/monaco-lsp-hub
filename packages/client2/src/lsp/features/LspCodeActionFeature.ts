@@ -24,7 +24,7 @@ export class LspCodeActionFeature extends Disposable {
                     disabledSupport: true,
                     dataSupport: true,
                     resolveSupport: {
-                        properties: ['edit'],
+                        properties: ['edit', 'command'],
                     },
                 }
             }
@@ -95,8 +95,8 @@ class LspCodeActionProvider implements monaco.languages.CodeActionProvider {
 
         return {
             actions: actions.map(action => {
-                if ('title' in action && !('kind' in action)) {
-                    // Command
+                if ('command' in action && typeof (action as any).command === 'string') {
+                    // Command (has command: string, vs CodeAction which has command?: Command object)
                     const cmd = action as Command;
                     const monacoAction: ExtendedCodeAction = {
                         title: cmd.title,

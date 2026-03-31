@@ -29,6 +29,7 @@ export class LspCompletionFeature extends Disposable {
                         valueSet: Array.from(lspCompletionItemKindToMonacoCompletionItemKind.keys()),
                     },
                     completionItem: {
+                        snippetSupport: true,
                         tagSupport: {
                             valueSet: Array.from(lspCompletionItemTagToMonacoCompletionItemTag.keys()),
                         },
@@ -36,6 +37,11 @@ export class LspCompletionFeature extends Disposable {
                         commitCharactersSupport: true,
                         deprecatedSupport: true,
                         preselectSupport: true,
+                        labelDetailsSupport: true,
+                        insertReplaceSupport: true,
+                        resolveSupport: {
+                            properties: ['documentation', 'detail', 'additionalTextEdits', 'command'],
+                        },
                     }
                 }
             }

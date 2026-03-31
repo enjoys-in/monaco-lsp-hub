@@ -12,7 +12,6 @@ export const AUTO_RESPOND_METHODS = new Set([
     "workspace/semanticTokens/refresh",
     "workspace/inlineValue/refresh",
     "workspace/codeLens/refresh",
-    "workspace/inlayHint/refresh",
     "workspace/foldingRange/refresh",
 ]);
 
