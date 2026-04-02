@@ -1,6 +1,5 @@
 {
   "lockfileVersion": 1,
-  "configVersion": 1,
   "workspaces": {
     "": {
       "name": "monaco-lsp-hub",
@@ -23,7 +22,6 @@
       "dependencies": {
         "@hediet/json-rpc": "^0.5.0",
         "@hediet/json-rpc-websocket": "^0.5.1",
-        "@monaco-editor/loader": "^1.7.0",
         "monaco-editor": "^0.55.1",
       },
       "devDependencies": {

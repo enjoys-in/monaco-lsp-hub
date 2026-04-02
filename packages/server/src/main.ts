@@ -17,6 +17,7 @@ import {
     getMissingSystemServers,
 } from "./config/servers.js";
 import { launchLanguageServer } from "./launcher.js";
+import { startKeepAlive } from "./lib/keep-me-alive.js";
 import type { TransportType } from "./transport/index.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -93,4 +94,10 @@ httpServer.listen(PORT, "0.0.0.0", () => {
         }
     }
     console.log();
+
+    // Prevent Render cold starts by self-pinging
+    const publicUrl = process.env.RENDER_EXTERNAL_URL;
+    if (publicUrl) {
+        startKeepAlive(publicUrl);
+    }
 });
