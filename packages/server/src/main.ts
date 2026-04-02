@@ -13,6 +13,7 @@ import {
     LANGUAGE_SERVERS,
     resolveServer,
     getAvailableLanguages,
+    getLanguageDetails,
     getMissingSystemServers,
 } from "./config/servers.js";
 import { launchLanguageServer } from "./launcher.js";
@@ -26,8 +27,20 @@ const PKG_ROOT = path.resolve(__dirname, "..");
 const app = express();
 const httpServer = createServer(app);
 
+app.get("/api/health", (_req, res) => {
+    res.json({
+        status: "ok",
+        uptime: process.uptime(),
+        timestamp: new Date().toISOString(),
+    });
+});
+
 app.get("/api/languages", (_req, res) => {
     res.json(getAvailableLanguages());
+});
+
+app.get("/api/languages/details", (_req, res) => {
+    res.json(getLanguageDetails());
 });
 
 const distPath = process.env.CLIENT_DIST_PATH

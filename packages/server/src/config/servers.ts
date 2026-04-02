@@ -283,6 +283,21 @@ export function getAvailableLanguages(): string[] {
     return [...direct, ...aliased];
 }
 
+export function getLanguageDetails(): Array<{
+    language: string;
+    name: string;
+    wsPath: string;
+    aliases: string[];
+}> {
+    return Object.entries(LANGUAGE_SERVERS).map(([wsPath, config]) => {
+        const language = wsPath.replace("/lsp/", "");
+        const aliases = Object.entries(PATH_ALIASES)
+            .filter(([, target]) => target === wsPath)
+            .map(([alias]) => alias.replace("/lsp/", ""));
+        return { language, name: config.name, wsPath, aliases };
+    });
+}
+
 export function getMissingSystemServers(): string[] {
     return Object.entries(SYSTEM_SERVER_DEFS)
         .filter(([p]) => !SYSTEM_SERVERS[p])
