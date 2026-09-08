@@ -2,7 +2,8 @@ import * as monaco from 'monaco-editor';
 import { capabilities, RenameRegistrationOptions } from '../types';
 import { Disposable } from '../utils';
 import { LspConnection } from '../LspConnection';
-import { toMonacoLanguageSelector } from './common';
+import { lspRequest } from './cancellation';
+import { toMonacoLanguageSelector, toMonacoWorkspaceEdit } from './common';
 
 export class LspRenameFeature extends Disposable {
     constructor(
@@ -42,101 +43,85 @@ class LspRenameProvider implements monaco.languages.RenameProvider {
     ): Promise<monaco.languages.WorkspaceEdit | null> {
         const translated = this._client.bridge.translate(model, position);
 
-        const result = await this._client.server.textDocumentRename({
+        const result = await lspRequest(token, () => this._client.server.textDocumentRename({
             textDocument: translated.textDocument,
             position: translated.position,
             newName,
-        });
+        }));
 
         if (!result) {
             return null;
         }
 
-        return toMonacoWorkspaceEdit(result, this._client);
+        return toMonacoWorkspaceEdit(result, this._client, 'rename');
     }
 
+    /**
+     * Where the rename box opens and what it is pre-filled with.
+     *
+     * Returning null aborts the rename outright, so a server without
+     * `prepareProvider` — which is most of them — has to fall back to the word
+     * under the cursor rather than being treated as a refusal. Same for
+     * `defaultBehavior: true`, which means exactly "use the word here".
+     */
     async resolveRenameLocation(
         model: monaco.editor.ITextModel,
         position: monaco.Position,
         token: monaco.CancellationToken
     ): Promise<monaco.languages.RenameLocation | null> {
         if (!this._capabilities.prepareProvider) {
-            return null;
+            return wordAt(model, position);
         }
 
         const translated = this._client.bridge.translate(model, position);
 
-        const result = await this._client.server.textDocumentPrepareRename({
+        const result = await lspRequest(token, () => this._client.server.textDocumentPrepareRename({
             textDocument: translated.textDocument,
             position: translated.position,
-        });
+        }));
 
         if (!result) {
-            return null;
+            return token.isCancellationRequested ? null : wordAt(model, position);
         }
 
-        if ('range' in result && 'placeholder' in result) {
+        if ('placeholder' in result && 'range' in result) {
             return {
-                range: this._client.bridge.translateBackRange(translated.textDocument, result.range).range,
+                range: this._client.bridge.toMonacoRange(result.range),
                 text: result.placeholder,
             };
-        } else if ('defaultBehavior' in result) {
-            return null;
-        } else if ('start' in result && 'end' in result) {
-            const range = this._client.bridge.translateBackRange(translated.textDocument, result).range;
+        }
+
+        if ('defaultBehavior' in result) {
+            return result.defaultBehavior ? wordAt(model, position) : null;
+        }
+
+        if ('start' in result && 'end' in result) {
+            const range = this._client.bridge.toMonacoRange(result);
             return {
                 range,
                 text: model.getValueInRange(range),
             };
         }
 
-        return null;
+        return wordAt(model, position);
     }
 }
 
-function toMonacoWorkspaceEdit(
-    edit: any,
-    client: LspConnection
-): monaco.languages.WorkspaceEdit {
-    const edits: monaco.languages.IWorkspaceTextEdit[] = [];
-
-    if (edit.changes) {
-        for (const uri in edit.changes) {
-            const textEdits = edit.changes[uri];
-            for (const textEdit of textEdits) {
-                const translated = client.bridge.translateBackRange({ uri }, textEdit.range);
-                edits.push({
-                    resource: translated.textModel.uri,
-                    versionId: undefined,
-                    textEdit: {
-                        range: translated.range,
-                        text: textEdit.newText,
-                    },
-                });
-            }
-        }
+function wordAt(
+    model: monaco.editor.ITextModel,
+    position: monaco.Position
+): monaco.languages.RenameLocation | null {
+    const word = model.getWordAtPosition(position);
+    if (!word) {
+        return null;
     }
-
-    if (edit.documentChanges) {
-        for (const change of edit.documentChanges) {
-            if ('textDocument' in change) {
-                // TextDocumentEdit
-                const uri = change.textDocument.uri;
-                for (const textEdit of change.edits) {
-                    const translated = client.bridge.translateBackRange({ uri }, textEdit.range);
-                    edits.push({
-                        resource: translated.textModel.uri,
-                        versionId: change.textDocument.version,
-                        textEdit: {
-                            range: translated.range,
-                            text: textEdit.newText,
-                        },
-                    });
-                }
-            }
-            // TODO: Handle CreateFile, RenameFile, DeleteFile
-        }
-    }
-
-    return { edits };
+    return {
+        range: new monaco.Range(
+            position.lineNumber,
+            word.startColumn,
+            position.lineNumber,
+            word.endColumn
+        ),
+        text: word.word,
+    };
 }

@@ -2,6 +2,7 @@ import * as monaco from 'monaco-editor';
 import { capabilities, DocumentLinkRegistrationOptions } from '../types';
 import { Disposable } from '../utils';
 import { LspConnection } from '../LspConnection';
+import { lspRequest } from './cancellation';
 import { toMonacoLanguageSelector } from './common';
 
 export class LspDocumentLinkFeature extends Disposable {
@@ -40,9 +41,9 @@ class LspDocumentLinkProvider implements monaco.languages.LinkProvider {
     ): Promise<monaco.languages.ILinksList | null> {
         const translated = this._client.bridge.translate(model, new monaco.Position(1, 1));
 
-        const result = await this._client.server.textDocumentDocumentLink({
+        const result = await lspRequest(token, () => this._client.server.textDocumentDocumentLink({
             textDocument: translated.textDocument,
-        });
+        }));
 
         if (!result) {
             return null;
@@ -50,7 +51,7 @@ class LspDocumentLinkProvider implements monaco.languages.LinkProvider {
 
         return {
             links: result.map(link => ({
-                range: this._client.bridge.translateBackRange(translated.textDocument, link.range).range,
+                range: this._client.bridge.toMonacoRange(link.range),
                 url: link.target,
                 tooltip: link.tooltip,
             })),
@@ -65,14 +66,18 @@ class LspDocumentLinkProvider implements monaco.languages.LinkProvider {
             return link;
         }
 
-        const result = await this._client.server.documentLinkResolve({
+        const result = await lspRequest(token, () => this._client.server.documentLinkResolve({
             range: {
                 start: { line: link.range.startLineNumber - 1, character: link.range.startColumn - 1 },
                 end: { line: link.range.endLineNumber - 1, character: link.range.endColumn - 1 },
             },
             target: link.url?.toString(),
             tooltip: link.tooltip,
-        });
+        }));
+
+        if (!result) {
+            return link;
+        }
 
         return {
             range: link.range,

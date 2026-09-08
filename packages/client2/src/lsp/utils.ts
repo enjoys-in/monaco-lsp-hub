@@ -73,3 +73,53 @@ export class DisposableStore implements IDisposable {
         return t;
     }
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// Cancellation
+// ────────────────────────────────────────────────────────────────────────────
+
+/** Structural subset of monaco.CancellationToken, so utils stays monaco-free */
+export interface ICancellationToken {
+    readonly isCancellationRequested: boolean;
+    onCancellationRequested: (listener: () => void) => IDisposable;
+}
+
+/**
+ * Stop waiting on an in-flight LSP request once the editor cancels it.
+ *
+ * The typed JSON-RPC layer doesn't expose request ids, so this cannot send a
+ * protocol-level `$/cancelRequest`; the server still finishes the work. What it
+ * does do is unblock the provider immediately and guarantee a stale response is
+ * never converted or applied — which is what the editor actually needs.
+ */
+export function raceCancellation<T>(
+    promise: Promise<T>,
+    token: ICancellationToken,
+): Promise<T | undefined> {
+    if (token.isCancellationRequested) {
+        return Promise.resolve(undefined);
+    }
+    return new Promise<T | undefined>((resolve, reject) => {
+        let settled = false;
+        const subscription = token.onCancellationRequested(() => {
+            if (settled) return;
+            settled = true;
+            subscription.dispose();
+            resolve(undefined);
+        });
+        promise.then(
+            (value) => {
+                if (settled) return;
+                settled = true;
+                subscription.dispose();
+                resolve(value);
+            },
+            (err) => {
+                if (settled) return;
+                settled = true;
+                subscription.dispose();
+                reject(err);
+            },
+        );
+    });
+}

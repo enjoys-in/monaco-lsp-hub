@@ -1,12 +1,14 @@
 import * as monaco from 'monaco-editor';
 import { api, capabilities, Position, Range, TextDocumentContentChangeEvent, TextDocumentIdentifier } from './types';
-import { Disposable } from './utils';
+import { Disposable, DisposableStore } from './utils';
 import { ITextModelBridge } from './ITextModelBridge';
 import { ILspCapabilitiesRegistry } from './LspCapabilitiesRegistry';
 
 export class TextDocumentSynchronizer extends Disposable implements ITextModelBridge {
     private readonly _managedModels = new Map<monaco.editor.ITextModel, ManagedModel>();
     private readonly _managedModelsReverse = new Map</* uri */ string, monaco.editor.ITextModel>();
+    /** onWillDispose subscriptions, one per managed model, keyed for removal */
+    private readonly _modelSubscriptions = new Map<monaco.editor.ITextModel, monaco.IDisposable>();
 
     private _started = false;
 
@@ -29,22 +31,19 @@ export class TextDocumentSynchronizer extends Disposable implements ITextModelBr
 
         this._register(_capabilities.registerCapabilityHandler(capabilities.textDocumentDidChange, true, e => {
             if (this._started) {
-                return {
-                    dispose: () => {
-                    }
-                }
+                return { dispose: () => { } };
             }
             this._started = true;
-            this._register(monaco.editor.onDidCreateModel(m => {
+
+            const store = new DisposableStore();
+            store.add(monaco.editor.onDidCreateModel(m => {
                 this._getOrCreateManagedModel(m);
             }));
             for (const m of monaco.editor.getModels()) {
                 this._getOrCreateManagedModel(m);
             }
-            return {
-                dispose: () => {
-                }
-            }
+            this._register(store);
+            return { dispose: () => { } };
         }));
     }
 
@@ -55,42 +54,87 @@ export class TextDocumentSynchronizer extends Disposable implements ITextModelBr
 
         const uriStr = m.uri.toString(true);
         let mm = this._managedModels.get(m);
-        if (!mm) {
-            mm = new ManagedModel(m, this._server);
-            this._managedModels.set(m, mm);
-            this._managedModelsReverse.set(uriStr, m);
+        if (mm) {
+            return mm;
         }
-        m.onWillDispose(() => {
-            mm!.dispose();
-            this._managedModels.delete(m);
-            this._managedModelsReverse.delete(uriStr);
-        });
+
+        mm = new ManagedModel(m, this._server);
+        this._managedModels.set(m, mm);
+        this._managedModelsReverse.set(uriStr, m);
+
+        // Registered once per model, and removed on teardown — re-subscribing
+        // on every lookup would leak a listener per call.
+        this._modelSubscriptions.set(m, m.onWillDispose(() => {
+            this._releaseManagedModel(m, uriStr);
+        }));
+
         return mm;
     }
 
-    translateBack(textDocument: TextDocumentIdentifier, position: Position): { textModel: monaco.editor.ITextModel; position: monaco.Position; } {
-        const uri = textDocument.uri;
-        const textModel = this._managedModelsReverse.get(uri);
-        if (!textModel) {
-            throw new Error(`No text model for uri ${uri}`);
-        }
-        const monacoPosition = new monaco.Position(position.line + 1, position.character + 1);
-        return { textModel, position: monacoPosition };
+    private _releaseManagedModel(m: monaco.editor.ITextModel, uriStr: string): void {
+        this._modelSubscriptions.get(m)?.dispose();
+        this._modelSubscriptions.delete(m);
+        this._managedModels.get(m)?.dispose();
+        this._managedModels.delete(m);
+        this._managedModelsReverse.delete(uriStr);
     }
 
-    translateBackRange(textDocument: TextDocumentIdentifier, range: Range): { textModel: monaco.editor.ITextModel; range: monaco.Range; } {
-        const uri = textDocument.uri;
-        const textModel = this._managedModelsReverse.get(uri);
-        if (!textModel) {
-            throw new Error(`No text model for uri ${uri}`);
+    override dispose(): void {
+        // Close every open document before the connection goes away, so the
+        // server isn't left believing a set of phantom files is still open.
+        for (const [uriStr, model] of [...this._managedModelsReverse]) {
+            this._releaseManagedModel(model, uriStr);
         }
-        const monacoRange = new monaco.Range(
+        this._managedModels.clear();
+        this._managedModelsReverse.clear();
+        this._modelSubscriptions.clear();
+        super.dispose();
+    }
+
+    // ── ITextModelBridge ────────────────────────────────────────────────────
+
+    findTextModel(textDocument: TextDocumentIdentifier): monaco.editor.ITextModel | undefined {
+        const known = this._managedModelsReverse.get(textDocument.uri);
+        if (known && !known.isDisposed()) {
+            return known;
+        }
+        // Fall back to Monaco's registry: a model can exist without being
+        // managed yet (created before sync started, or a different scheme).
+        const model = monaco.editor.getModel(monaco.Uri.parse(textDocument.uri));
+        return model ?? undefined;
+    }
+
+    resolveUri(uri: string): monaco.Uri {
+        return this.findTextModel({ uri })?.uri ?? monaco.Uri.parse(uri);
+    }
+
+    toMonacoPosition(position: Position): monaco.Position {
+        return new monaco.Position(position.line + 1, position.character + 1);
+    }
+
+    toMonacoRange(range: Range): monaco.Range {
+        return new monaco.Range(
             range.start.line + 1,
             range.start.character + 1,
             range.end.line + 1,
             range.end.character + 1
         );
-        return { textModel, range: monacoRange };
+    }
+
+    translateBack(textDocument: TextDocumentIdentifier, position: Position): { textModel: monaco.editor.ITextModel; position: monaco.Position; } {
+        const textModel = this.findTextModel(textDocument);
+        if (!textModel) {
+            throw new Error(`No text model for uri ${textDocument.uri}`);
+        }
+        return { textModel, position: this.toMonacoPosition(position) };
+    }
+
+    translateBackRange(textDocument: TextDocumentIdentifier, range: Range): { textModel: monaco.editor.ITextModel; range: monaco.Range; } {
+        const textModel = this.findTextModel(textDocument);
+        if (!textModel) {
+            throw new Error(`No text model for uri ${textDocument.uri}`);
+        }
+        return { textModel, range: this.toMonacoRange(range) };
     }
 
     translate(textModel: monaco.editor.ITextModel, monacoPos: monaco.Position): { textDocument: TextDocumentIdentifier; position: Position; } {

@@ -2,7 +2,8 @@ import * as monaco from 'monaco-editor';
 import { capabilities, SignatureHelpRegistrationOptions, MarkupContent, MarkupKind } from '../types';
 import { Disposable } from '../utils';
 import { LspConnection } from '../LspConnection';
-import { toMonacoLanguageSelector } from './common';
+import { lspRequest } from './cancellation';
+import { toMarkdown, toMonacoLanguageSelector } from './common';
 import { toLspSignatureHelpTriggerKind } from './common';
 
 export class LspSignatureHelpFeature extends Disposable {
@@ -56,7 +57,7 @@ class LspSignatureHelpProvider implements monaco.languages.SignatureHelpProvider
     ): Promise<monaco.languages.SignatureHelpResult | null> {
         const translated = this._client.bridge.translate(model, position);
 
-        const result = await this._client.server.textDocumentSignatureHelp({
+        const result = await lspRequest(token, () => this._client.server.textDocumentSignatureHelp({
             textDocument: translated.textDocument,
             position: translated.position,
             context: {
@@ -64,7 +65,7 @@ class LspSignatureHelpProvider implements monaco.languages.SignatureHelpProvider
                 triggerCharacter: context.triggerCharacter,
                 isRetrigger: context.isRetrigger,
             },
-        });
+        }));
 
         if (!result) {
             return null;
@@ -81,21 +82,14 @@ class LspSignatureHelpProvider implements monaco.languages.SignatureHelpProvider
                     })) || [],
                     activeParameter: sig.activeParameter,
                 })),
-                activeSignature: result.activeSignature || 0,
-                activeParameter: result.activeParameter || 0,
+                activeSignature: result.activeSignature ?? 0,
+                // `null` means "no active parameter" in LSP 3.17; coercing it
+                // to 0 highlighted the first parameter instead of none.
+                activeParameter: result.activeParameter ?? -1,
             },
             dispose: () => { },
         };
     }
 }
 
-function toMonacoDocumentation(
-    doc: string | MarkupContent | undefined
-): string | monaco.IMarkdownString | undefined {
-    if (!doc) return undefined;
-    if (typeof doc === 'string') return doc;
-    return {
-        value: doc.value,
-        isTrusted: true,
-    };
-}
+const toMonacoDocumentation = toMarkdown;

@@ -2,6 +2,7 @@ import * as monaco from 'monaco-editor';
 import { capabilities, SemanticTokensRegistrationOptions } from '../types';
 import { Disposable } from '../utils';
 import { LspConnection } from '../LspConnection';
+import { lspRequest } from './cancellation';
 import { toMonacoLanguageSelector } from './common';
 
 export class LspRangeSemanticTokensFeature extends Disposable {
@@ -44,13 +45,13 @@ class LspRangeSemanticTokensProvider implements monaco.languages.DocumentRangeSe
     ): Promise<monaco.languages.SemanticTokens | null> {
         const translated = this._client.bridge.translate(model, model.getPositionAt(0));
 
-        const result = await this._client.server.textDocumentSemanticTokensRange({
+        const result = await lspRequest(token, () => this._client.server.textDocumentSemanticTokensRange({
             textDocument: translated.textDocument,
             range: {
                 start: { line: range.startLineNumber - 1, character: range.startColumn - 1 },
                 end: { line: range.endLineNumber - 1, character: range.endColumn - 1 },
             },
-        });
+        }));
 
         if (!result) {
             return null;

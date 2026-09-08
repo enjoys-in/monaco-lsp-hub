@@ -108,19 +108,17 @@ go 1.21
     },
 };
 
-const scaffoldedDirs = new Set<string>();
-
 /**
  * Create scaffolding files in the workspace directory if not already done.
  * Returns info about what was created, or null if nothing was needed.
+ *
+ * Every session gets a fresh temp directory, so `existsSync` per file is the
+ * whole guard — a module-level "already scaffolded" set would just accumulate
+ * one dead entry per connection for the process lifetime.
  */
 export function scaffoldWorkspace(workspaceDir: string, fileUri: string): ScaffoldResult | null {
     const ext = fileUri.split(".").pop()?.toLowerCase();
     if (!ext) return null;
-
-    const key = `${workspaceDir}:${ext}`;
-    if (scaffoldedDirs.has(key)) return null;
-    scaffoldedDirs.add(key);
 
     const scaffold = SCAFFOLDS[ext];
     if (!scaffold) return null;

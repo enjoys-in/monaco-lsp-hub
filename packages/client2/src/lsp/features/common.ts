@@ -16,9 +16,12 @@ import {
     InsertTextFormat,
     Location,
     LocationLink,
+    MarkupContent,
+    Range,
     SignatureHelpTriggerKind,
     SymbolKind,
     SymbolTag,
+    WorkspaceEdit,
 } from '../types';
 import { LspConnection } from '../LspConnection';
 
@@ -306,32 +309,162 @@ export function toMonacoInlayHintKind(kind: InlayHintKind | undefined): monaco.l
         return monaco.languages.InlayHintKind.Type;
     }
     return lspInlayHintKindToMonacoInlayHintKind.get(kind) ?? monaco.languages.InlayHintKind.Type;
-} export function toMonacoLocation(
+}
+
+// ============================================================================
+// Markdown
+// ============================================================================
+
+/**
+ * Server-supplied markdown (hover bodies, completion docs, inlay tooltips).
+ *
+ * `isTrusted` is deliberately false: it gates `command:` links, and a language
+ * server is not a trusted authority for "run this editor command on click".
+ */
+export function toMarkdown(
+    value: string | MarkupContent | undefined
+): string | monaco.IMarkdownString | undefined {
+    if (!value) {
+        return undefined;
+    }
+    if (typeof value === 'string') {
+        return { value, isTrusted: false };
+    }
+    return { value: value.value, isTrusted: false };
+}
+
+// ============================================================================
+// Locations
+// ============================================================================
+
+/**
+ * Convert an LSP Location / LocationLink to its Monaco equivalent.
+ *
+ * `sourceUri` is the document the request was made against. It matters because
+ * `originSelectionRange` belongs to the *source* document while `targetRange`
+ * belongs to the target — conflating them produced ranges from the wrong file.
+ *
+ * Nothing here needs an open model: definitions and references routinely point
+ * at stdlib or dependency files the editor has never opened, and throwing on
+ * those discarded every other result in the same response.
+ */
+export function toMonacoLocation(
     location: Location | LocationLink,
-    client: LspConnection
+    client: LspConnection,
+    sourceUri?: string
 ): monaco.languages.Location | monaco.languages.LocationLink {
+    const bridge = client.bridge;
+
     if ('targetUri' in location) {
-        // LocationLink
-        const translatedRange = client.bridge.translateBackRange({ uri: location.targetUri }, location.targetRange);
         return {
-            uri: translatedRange.textModel.uri,
-            range: translatedRange.range,
+            uri: bridge.resolveUri(location.targetUri),
+            range: bridge.toMonacoRange(location.targetRange),
             originSelectionRange: location.originSelectionRange
-                ? client.bridge.translateBackRange({ uri: location.targetUri }, location.originSelectionRange).range
+                ? bridge.toMonacoRange(location.originSelectionRange)
                 : undefined,
             targetSelectionRange: location.targetSelectionRange
-                ? client.bridge.translateBackRange({ uri: location.targetUri }, location.targetSelectionRange).range
+                ? bridge.toMonacoRange(location.targetSelectionRange)
                 : undefined,
         };
-    } else {
-        // Location
-        const translatedRange = client.bridge.translateBackRange({ uri: location.uri }, location.range);
-        return {
-            uri: translatedRange.textModel.uri,
-            range: translatedRange.range,
-        };
     }
+
+    return {
+        uri: bridge.resolveUri(location.uri),
+        range: bridge.toMonacoRange(location.range),
+    };
 }
+
+// ============================================================================
+// Workspace edits
+// ============================================================================
+
+export interface ConvertedWorkspaceEdit {
+    edit: monaco.languages.WorkspaceEdit;
+    /** create / rename / delete operations that were present in the LSP edit */
+    fileOperations: string[];
+}
+
+/**
+ * Convert an LSP WorkspaceEdit into a Monaco WorkspaceEdit.
+ *
+ * Text edits for files with no open model are kept (the URI resolves either
+ * way), so an edit that touches a second file no longer throws away the whole
+ * rename. File operations are reported separately rather than dropped in
+ * silence: Monaco's standalone bulk-edit service rejects anything that isn't a
+ * text edit, so they cannot be forwarded here — `MonacoLspClient` applies them
+ * itself on the `workspace/applyEdit` path where it controls application.
+ */
+export function convertWorkspaceEdit(
+    edit: WorkspaceEdit,
+    client: LspConnection
+): ConvertedWorkspaceEdit {
+    const edits: monaco.languages.IWorkspaceTextEdit[] = [];
+    const fileOperations: string[] = [];
+    const bridge = client.bridge;
+
+    if (edit.changes) {
+        for (const [uri, textEdits] of Object.entries(edit.changes)) {
+            const resource = bridge.resolveUri(uri);
+            for (const textEdit of textEdits) {
+                edits.push({
+                    resource,
+                    versionId: undefined,
+                    textEdit: {
+                        range: bridge.toMonacoRange(textEdit.range),
+                        text: textEdit.newText,
+                    },
+                });
+            }
+        }
+    }
+
+    if (edit.documentChanges) {
+        for (const change of edit.documentChanges) {
+            if ('textDocument' in change) {
+                const resource = bridge.resolveUri(change.textDocument.uri);
+                // versionId only means something for a document we actually
+                // track; sending a server version for an unopened file makes
+                // Monaco reject the edit as stale.
+                const tracked = bridge.findTextModel({ uri: change.textDocument.uri });
+                for (const textEdit of change.edits) {
+                    edits.push({
+                        resource,
+                        versionId: tracked ? change.textDocument.version ?? undefined : undefined,
+                        textEdit: {
+                            range: bridge.toMonacoRange(textEdit.range),
+                            text: textEdit.newText,
+                        },
+                    });
+                }
+            } else if ('kind' in change) {
+                fileOperations.push(change.kind);
+            }
+        }
+    }
+
+    return { edit: { edits }, fileOperations };
+}
+
+/** Monaco-only view of the above, for providers that return an edit directly. */
+export function toMonacoWorkspaceEdit(
+    edit: WorkspaceEdit,
+    client: LspConnection,
+    context: string
+): monaco.languages.WorkspaceEdit {
+    const { edit: converted, fileOperations } = convertWorkspaceEdit(edit, client);
+    if (fileOperations.length > 0) {
+        console.warn(
+            `[LSP] ${context}: dropping unsupported file operations (${fileOperations.join(', ')}) — ` +
+            `the standalone editor can only apply text edits`
+        );
+    }
+    return converted;
+}
+
+// ============================================================================
+// Document selectors
+// ============================================================================
+
 export function toMonacoLanguageSelector(s: DocumentSelector | null): monaco.languages.LanguageSelector {
     if (!s || s.length === 0) {
         return '*';
@@ -347,28 +480,78 @@ export function toMonacoLanguageSelector(s: DocumentSelector | null): monaco.lan
             return { language: s.language, pattern: s.pattern, scheme: s.scheme };
         }
     });
-
 }
-export function matchesDocumentSelector(model: monaco.editor.ITextModel, selector: DocumentSelector | null): boolean {
-    if (!selector) {
-        return true;
-    }
-    const languageId = model.getLanguageId();
-    const uri = model.uri.toString(true);
 
+/** Minimal glob support: `*` within a segment, `**` across segments, `?` for one char. */
+function globToRegExp(pattern: string): RegExp {
+    let out = '';
+    for (let i = 0; i < pattern.length; i++) {
+        const c = pattern[i];
+        if (c === '*') {
+            if (pattern[i + 1] === '*') {
+                out += '.*';
+                i++;
+                if (pattern[i + 1] === '/') i++;
+            } else {
+                out += '[^/]*';
+            }
+        } else if (c === '?') {
+            out += '[^/]';
+        } else if ('\\^$+.()|{}[]'.includes(c)) {
+            out += '\\' + c;
+        } else {
+            out += c;
+        }
+    }
+    return new RegExp(`^${out}$`);
+}
+
+/**
+ * Does `model` satisfy a document selector?
+ *
+ * All three parts of a filter are conjunctive per the spec. Only `language`
+ * used to be checked, so a `{ scheme: 'file' }` filter matched every model and
+ * a filter with a non-matching language plus a matching pattern was misjudged.
+ */
+export function matchesDocumentSelector(
+    model: monaco.editor.ITextModel,
+    selector: DocumentSelector | null
+): boolean {
     if (!selector || selector.length === 0) {
         return true;
     }
 
-    for (const filter of selector) {
+    const languageId = model.getLanguageId();
+    const scheme = model.uri.scheme;
+    const fsPath = model.uri.path;
+
+    return selector.some(filter => {
+        if ('notebook' in filter) {
+            return false;
+        }
         if (filter.language && filter.language !== '*' && filter.language !== languageId) {
-            continue;
+            return false;
+        }
+        if (filter.scheme && filter.scheme !== '*' && filter.scheme !== scheme) {
+            return false;
+        }
+        if (filter.pattern) {
+            try {
+                if (!globToRegExp(filter.pattern).test(fsPath)) {
+                    return false;
+                }
+            } catch {
+                // An unparseable pattern shouldn't disable the feature.
+            }
         }
         return true;
-    }
-
-    return false;
+    });
 }
+
+// ============================================================================
+// Diagnostics
+// ============================================================================
+
 export function toDiagnosticMarker(diagnostic: Diagnostic): monaco.editor.IMarkerData {
     const marker: monaco.editor.IMarkerData = {
         severity: toMonacoDiagnosticSeverity(diagnostic.severity),
@@ -378,7 +561,7 @@ export function toDiagnosticMarker(diagnostic: Diagnostic): monaco.editor.IMarke
         endColumn: diagnostic.range.end.character + 1,
         message: diagnostic.message,
         source: diagnostic.source,
-        code: typeof diagnostic.code === 'string' ? diagnostic.code : diagnostic.code?.toString(),
+        code: toMarkerCode(diagnostic),
     };
 
     if (diagnostic.tags) {
@@ -399,3 +582,43 @@ export function toDiagnosticMarker(diagnostic: Diagnostic): monaco.editor.IMarke
     return marker;
 }
 
+/** Keep `codeDescription.href` as a clickable code when the server sends one. */
+function toMarkerCode(
+    diagnostic: Diagnostic
+): string | { value: string; target: monaco.Uri } | undefined {
+    if (diagnostic.code === undefined || diagnostic.code === null) {
+        return undefined;
+    }
+    const value = String(diagnostic.code);
+    const href = diagnostic.codeDescription?.href;
+    if (href) {
+        try {
+            return { value, target: monaco.Uri.parse(href) };
+        } catch {
+            return value;
+        }
+    }
+    return value;
+}
+
+/**
+ * Reconstruct an LSP diagnostic from a Monaco marker.
+ *
+ * Lossy by nature — a marker has no room for `data`, and `code` collapses to a
+ * string — so callers should prefer the original diagnostic from
+ * `LspConnection.diagnostics` and fall back to this only when the marker came
+ * from somewhere else (a Monaco worker, say).
+ */
+export function toLspDiagnostic(
+    marker: monaco.editor.IMarkerData,
+    bridge: { translateRange(model: monaco.editor.ITextModel, range: monaco.Range): Range },
+    model: monaco.editor.ITextModel
+): Diagnostic {
+    return {
+        range: bridge.translateRange(model, monaco.Range.lift(marker)),
+        message: marker.message,
+        severity: toLspDiagnosticSeverity(marker.severity),
+        source: marker.source,
+        code: typeof marker.code === 'string' ? marker.code : marker.code?.value,
+    };
+}

@@ -1,6 +1,12 @@
 // Temp workspace creation, URI mapping, and file sync for cloud deployments.
 // Each WebSocket session gets an isolated temp directory so language servers
 // that require real files on disk can function without a persistent filesystem.
+//
+// Clients may create arbitrary files anywhere *inside* the session workspace,
+// nested directories included — that is what a real LSP workspace needs, and
+// `didOpen` on a new URI is the mechanism for it. Paths that resolve outside
+// the session directory are rejected: `..` escapes are never legitimate LSP
+// traffic, only a way to write to the host filesystem.
 
 import fs from "fs";
 import path from "path";
@@ -9,7 +15,6 @@ import crypto from "crypto";
 import { fileURLToPath, pathToFileURL } from "url";
 
 const VIRTUAL_ROOT = "file:///workspace";
-const IS_WIN = process.platform === "win32";
 
 export interface Workspace {
     /** Absolute path to the temp directory */
@@ -38,20 +43,20 @@ export function createWorkspace(): Workspace {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lsp-workspace-"));
     const uri = pathToFileURL(dir).href;
 
-    // Normalize URI prefix for comparison — on Windows pathToFileURL produces
-    // file:///C:/Users/... with forward slashes, which is the standard form.
-    // We keep uri as-is since pathToFileURL already handles platform correctly.
+    // Prefix comparisons require a path-segment boundary, otherwise a sibling
+    // directory (file:///workspace-other/…) would be mapped into this session.
+    function hasPrefix(u: string, prefix: string): boolean {
+        return u === prefix || u.startsWith(prefix + "/");
+    }
 
     function virtualToReal(u: string): string {
-        if (!u.startsWith(VIRTUAL_ROOT)) return u;
-        const suffix = u.substring(VIRTUAL_ROOT.length);
-        return uri + suffix;
+        if (!hasPrefix(u, VIRTUAL_ROOT)) return u;
+        return uri + u.substring(VIRTUAL_ROOT.length);
     }
 
     function realToVirtual(u: string): string {
-        if (!u.startsWith(uri)) return u;
-        const suffix = u.substring(uri.length);
-        return VIRTUAL_ROOT + suffix;
+        if (!hasPrefix(u, uri)) return u;
+        return VIRTUAL_ROOT + u.substring(uri.length);
     }
 
     function rewriteUris(obj: unknown, rewriter: (u: string) => string): unknown {
@@ -80,13 +85,30 @@ export function createWorkspace(): Workspace {
 
     const STALE_CACHE_MS = 2 * 60 * 1000; // 2 minutes
 
+    let disposed = false;
+
     function hash(content: string): string {
         return crypto.createHash("md5").update(content).digest("hex");
     }
 
-    /** Convert a file:// URI to a native OS path */
-    function uriToPath(fileUri: string): string {
-        return fileURLToPath(fileUri);
+    /**
+     * Resolve a file:// URI to a real path inside this workspace.
+     * Returns null when the URI is unparseable or escapes the workspace root —
+     * `new URL()` collapses `..` and percent-encoded `%2e%2e` segments, so the
+     * check has to run on the *resolved* path, not on the URI text.
+     */
+    function resolveInsideWorkspace(fileUri: string): string | null {
+        let filePath: string;
+        try {
+            filePath = fileURLToPath(virtualToReal(fileUri));
+        } catch {
+            return null;
+        }
+        const resolved = path.resolve(filePath);
+        if (resolved !== dir && !resolved.startsWith(dir + path.sep)) {
+            return null;
+        }
+        return resolved;
     }
 
     /** Ensure parent directory exists (cached — only calls mkdirSync once per dir) */
@@ -98,7 +120,14 @@ export function createWorkspace(): Workspace {
     }
 
     function syncFile(fileUri: string, content: string): void {
+        if (disposed) return;
         try {
+            const filePath = resolveInsideWorkspace(fileUri);
+            if (!filePath) {
+                console.warn(`[Workspace] Refusing write outside workspace: ${fileUri}`);
+                return;
+            }
+
             // Cancel any pending deferred removal — file is active again
             const pending = pendingRemovals.get(fileUri);
             if (pending) {
@@ -114,8 +143,6 @@ export function createWorkspace(): Workspace {
             if (contentHashes.get(fileUri) === h) return;
             contentHashes.set(fileUri, h);
 
-            const realUri = virtualToReal(fileUri);
-            const filePath = uriToPath(realUri);
             ensureDir(filePath);
             fs.writeFileSync(filePath, content, "utf-8");
         } catch (err) {
@@ -125,6 +152,14 @@ export function createWorkspace(): Workspace {
 
     /** Deferred removal — keeps cache for STALE_CACHE_MS so reopening is instant */
     function removeFile(fileUri: string): void {
+        if (disposed) return;
+
+        const filePath = resolveInsideWorkspace(fileUri);
+        if (!filePath) {
+            console.warn(`[Workspace] Refusing delete outside workspace: ${fileUri}`);
+            return;
+        }
+
         // If already pending, reset the timer
         const existing = pendingRemovals.get(fileUri);
         if (existing) clearTimeout(existing);
@@ -134,8 +169,6 @@ export function createWorkspace(): Workspace {
             fileContents.delete(fileUri);
             contentHashes.delete(fileUri);
             try {
-                const realUri = virtualToReal(fileUri);
-                const filePath = uriToPath(realUri);
                 fs.unlinkSync(filePath);
             } catch {
                 // ignore — file may already be gone
@@ -160,12 +193,20 @@ export function createWorkspace(): Workspace {
     }
 
     function cleanup(): void {
+        if (disposed) return;
+        disposed = true;
+
         for (const timer of pendingRemovals.values()) clearTimeout(timer);
         pendingRemovals.clear();
         fileContents.clear();
         contentHashes.clear();
         createdDirs.clear();
-        fs.rm(dir, { recursive: true, force: true }, () => {});
+
+        // Language servers keep writing caches while they shut down, so retry
+        // instead of silently leaving the directory behind in /tmp.
+        fs.rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }, (err) => {
+            if (err) console.error(`[Workspace] Failed to remove ${dir}:`, err.message);
+        });
     }
 
     return {

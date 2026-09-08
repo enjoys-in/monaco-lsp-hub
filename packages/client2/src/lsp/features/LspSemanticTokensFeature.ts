@@ -2,6 +2,7 @@ import * as monaco from 'monaco-editor';
 import { capabilities, SemanticTokensRegistrationOptions, TokenFormat } from '../types';
 import { Disposable } from '../utils';
 import { LspConnection } from '../LspConnection';
+import { lspRequest } from './cancellation';
 import { toMonacoLanguageSelector } from './common';
 
 export class LspSemanticTokensFeature extends Disposable {
@@ -74,10 +75,10 @@ class LspSemanticTokensProvider implements monaco.languages.DocumentSemanticToke
         // Try delta request if we have a previous result and server supports it
         const full = this._capabilities.full;
         if (lastResultId && full && typeof full === 'object' && full.delta) {
-            const deltaResult = await this._client.server.textDocumentSemanticTokensFullDelta({
+            const deltaResult = await lspRequest(token, () => this._client.server.textDocumentSemanticTokensFullDelta({
                 textDocument: translated.textDocument,
                 previousResultId: lastResultId,
-            });
+            }));
 
             if (!deltaResult) {
                 return null;
@@ -104,9 +105,9 @@ class LspSemanticTokensProvider implements monaco.languages.DocumentSemanticToke
         }
 
         // Full request
-        const result = await this._client.server.textDocumentSemanticTokensFull({
+        const result = await lspRequest(token, () => this._client.server.textDocumentSemanticTokensFull({
             textDocument: translated.textDocument,
-        });
+        }));
 
         if (!result) {
             return null;

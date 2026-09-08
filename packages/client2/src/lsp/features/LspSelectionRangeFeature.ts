@@ -2,6 +2,7 @@ import * as monaco from 'monaco-editor';
 import { capabilities, SelectionRangeRegistrationOptions } from '../types';
 import { Disposable } from '../utils';
 import { LspConnection } from '../LspConnection';
+import { lspRequest } from './cancellation';
 import { toMonacoLanguageSelector } from './common';
 
 export class LspSelectionRangeFeature extends Disposable {
@@ -40,10 +41,10 @@ class LspSelectionRangeProvider implements monaco.languages.SelectionRangeProvid
     ): Promise<monaco.languages.SelectionRange[][] | null> {
         const translated = this._client.bridge.translate(model, positions[0]);
 
-        const result = await this._client.server.textDocumentSelectionRange({
+        const result = await lspRequest(token, () => this._client.server.textDocumentSelectionRange({
             textDocument: translated.textDocument,
             positions: positions.map(pos => this._client.bridge.translate(model, pos).position),
-        });
+        }));
 
         if (!result) {
             return null;
@@ -61,7 +62,7 @@ class LspSelectionRangeProvider implements monaco.languages.SelectionRangeProvid
 
         while (current) {
             result.push({
-                range: this._client.bridge.translateBackRange(textDocument, current.range).range,
+                range: this._client.bridge.toMonacoRange(current.range),
             });
             current = current.parent;
         }

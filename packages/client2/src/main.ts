@@ -11,7 +11,7 @@ import htmlWorker from "monaco-editor/esm/vs/language/html/html.worker?worker";
 import tsWorker from "monaco-editor/esm/vs/language/typescript/ts.worker?worker";
 import { WebSocketTransport } from "@hediet/json-rpc-websocket";
 import { MonacoLspClient } from "./lsp/LspClient";
-import { languages, type LanguageConfig } from "./config";
+import { languages, workspaceFileName, type LanguageConfig } from "./config";
 import { showToast, lspMessageTypeToToast } from "./toast";
 
 self.MonacoEnvironment = {
@@ -28,6 +28,9 @@ let editor: monaco.editor.IStandaloneCodeEditor | null = null;
 let currentClient: MonacoLspClient | null = null;
 let currentTransport: WebSocketTransport | null = null;
 let currentLanguage = "";
+
+/** Guards overlapping switches — see the same mechanism in the client package. */
+let switchGeneration = 0;
 
 // ── WebSocket URL ────────────────────────────────────────────────────────────
 
@@ -48,7 +51,7 @@ function setStatus(text: string, state: "info" | "connected" | "error" = "info")
 
 function initEditor(langConfig: LanguageConfig): void {
     const container = document.getElementById("editor-container")!;
-    const uri = monaco.Uri.parse(`file:///workspace/main.${langConfig.fileExtension}`);
+    const uri = monaco.Uri.parse(`file:///workspace/${workspaceFileName(langConfig)}`);
 
     if (editor) {
         const oldModel = editor.getModel();
@@ -80,52 +83,82 @@ function initEditor(langConfig: LanguageConfig): void {
 
 // ── Language Client (LSP over WebSocket) ─────────────────────────────────────
 
-async function connectLanguageClient(langConfig: LanguageConfig): Promise<void> {
-    if (currentTransport) {
-        currentTransport.close();
-        currentTransport = null;
-        currentClient = null;
-    }
+function disconnectLanguageClient(): void {
+    // Disposing the client unregisters its Monaco providers and closes its
+    // documents. Closing only the transport left a full set of providers behind
+    // on a dead socket, one set per language visited.
+    currentClient?.dispose();
+    currentClient = null;
+    currentTransport?.close();
+    currentTransport = null;
+}
+
+async function connectLanguageClient(langConfig: LanguageConfig, generation: number): Promise<void> {
+    disconnectLanguageClient();
 
     setStatus(`Connecting to ${langConfig.serverName}...`);
 
+    const url = getWebSocketUrl(langConfig.id);
+    let transport: WebSocketTransport;
     try {
-        const url = getWebSocketUrl(langConfig.id);
-        const transport = await WebSocketTransport.connectTo({ address: url });
-        currentTransport = transport;
-
-        const client = new MonacoLspClient(transport, {
-
-            onShowMessage(params) {
-                showToast({
-                    message: params.message,
-                    type: lspMessageTypeToToast(params.type),
-                });
-            },
-            onLogMessage(params) {
-                const level = params.type <= 1 ? "error" : params.type === 2 ? "warn" : "log";
-                (console as any)[level]("[LSP]", params.message);
-                showToast({
-                    message: params.message,
-                    type: lspMessageTypeToToast(params.type),
-                    duration: 3000,
-                });
-            },
-        });
-        currentClient = client;
-
-        setStatus(`Connected to ${langConfig.serverName}`, "connected");
-
-        transport.state.onChange(() => {
-            if (transport.state.value.state === "closed") {
-                setStatus(`${langConfig.serverName} disconnected`, "error");
-            }
-        });
+        transport = await WebSocketTransport.connectTo({ address: url });
     } catch (err) {
+        if (generation !== switchGeneration) return;
         console.error("[LSP] Connection error:", err);
         setStatus(`Failed to connect to ${langConfig.serverName}`, "error");
         throw err;
     }
+
+    // A newer switch won the race while we were connecting.
+    if (generation !== switchGeneration) {
+        transport.close();
+        return;
+    }
+
+    currentTransport = transport;
+
+    const client = new MonacoLspClient(transport, {
+        onShowMessage(params) {
+            showToast({
+                message: params.message,
+                type: lspMessageTypeToToast(params.type),
+            });
+        },
+        onLogMessage(params) {
+            const level = params.type <= 1 ? "error" : params.type === 2 ? "warn" : "log";
+            (console as any)[level]("[LSP]", params.message);
+            showToast({
+                message: params.message,
+                type: lspMessageTypeToToast(params.type),
+                duration: 3000,
+            });
+        },
+        onInitializeError(error) {
+            if (generation !== switchGeneration) return;
+            console.error("[LSP] Handshake failed:", error);
+            setStatus(`${langConfig.serverName} failed to initialize`, "error");
+        },
+    });
+    currentClient = client;
+
+    transport.state.onChange(() => {
+        if (generation !== switchGeneration) return;
+        if (transport.state.value.state === "closed") {
+            setStatus(`${langConfig.serverName} disconnected`, "error");
+        }
+    });
+
+    // "Connected" now means the initialize handshake actually completed — it
+    // used to be reported the moment the socket opened, while every request
+    // sent in that window was answered with an error.
+    try {
+        await client.ready;
+    } catch {
+        return;
+    }
+    if (generation !== switchGeneration) return;
+
+    setStatus(`Connected to ${langConfig.serverName}`, "connected");
 }
 
 // ── Language Switching ───────────────────────────────────────────────────────
@@ -139,16 +172,20 @@ async function switchLanguage(langId: string): Promise<void> {
         return;
     }
 
+    const generation = ++switchGeneration;
     currentLanguage = langId;
 
     document.querySelectorAll(".tab").forEach((tab) => {
         tab.classList.toggle("active", tab.getAttribute("data-lang") === langId);
     });
 
+    // Tear the old client down first, so its didClose notifications still have
+    // a live socket to go out on.
+    disconnectLanguageClient();
     initEditor(langConfig);
 
     try {
-        await connectLanguageClient(langConfig);
+        await connectLanguageClient(langConfig, generation);
     } catch (err) {
         console.error("Failed to connect language client:", err);
     }
@@ -160,7 +197,7 @@ async function main(): Promise<void> {
     document.querySelectorAll(".tab").forEach((tab) => {
         tab.addEventListener("click", () => {
             const lang = tab.getAttribute("data-lang");
-            if (lang) switchLanguage(lang);
+            if (lang) void switchLanguage(lang);
         });
     });
 

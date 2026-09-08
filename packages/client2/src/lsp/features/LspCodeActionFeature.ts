@@ -1,9 +1,17 @@
 import * as monaco from 'monaco-editor';
-import { capabilities, CodeActionRegistrationOptions, Command, WorkspaceEdit, CodeAction } from '../types';
+import { capabilities, CodeActionRegistrationOptions, Command, CodeAction, Diagnostic, CodeActionKind } from '../types';
 import { Disposable } from '../utils';
 import { LspConnection } from '../LspConnection';
-import { toMonacoLanguageSelector } from './common';
-import { lspCodeActionKindToMonacoCodeActionKind, toMonacoCodeActionKind, toLspDiagnosticSeverity, toLspCodeActionTriggerKind, toMonacoCommand } from './common';
+import { lspRequest } from './cancellation';
+import {
+    lspCodeActionKindToMonacoCodeActionKind,
+    toMonacoCodeActionKind,
+    toLspCodeActionTriggerKind,
+    toLspDiagnostic,
+    toMonacoCommand,
+    toMonacoLanguageSelector,
+    toMonacoWorkspaceEdit,
+} from './common';
 
 export class LspCodeActionFeature extends Disposable {
     constructor(
@@ -52,14 +60,18 @@ class LspCodeActionProvider implements monaco.languages.CodeActionProvider {
     ) {
         if (_capabilities.resolveProvider) {
             this.resolveCodeAction = async (codeAction: ExtendedCodeAction, token: monaco.CancellationToken): Promise<ExtendedCodeAction> => {
-                if (codeAction._lspAction) {
-                    const resolved = await this._client.server.codeActionResolve(codeAction._lspAction);
-                    if (resolved.edit) {
-                        codeAction.edit = toMonacoWorkspaceEdit(resolved.edit, this._client);
-                    }
-                    if (resolved.command) {
-                        codeAction.command = toMonacoCommand(resolved.command);
-                    }
+                if (!codeAction._lspAction) {
+                    return codeAction;
+                }
+                const resolved = await lspRequest(token, () => this._client.server.codeActionResolve(codeAction._lspAction!));
+                if (!resolved) {
+                    return codeAction;
+                }
+                if (resolved.edit) {
+                    codeAction.edit = toMonacoWorkspaceEdit(resolved.edit, this._client, 'codeAction/resolve');
+                }
+                if (resolved.command) {
+                    codeAction.command = toMonacoCommand(resolved.command);
                 }
                 return codeAction;
             };
@@ -73,19 +85,20 @@ class LspCodeActionProvider implements monaco.languages.CodeActionProvider {
         token: monaco.CancellationToken
     ): Promise<monaco.languages.CodeActionList | null> {
         const translated = this._client.bridge.translate(model, range.getStartPosition());
+        const uri = translated.textDocument.uri;
 
-        const result = await this._client.server.textDocumentCodeAction({
+        const result = await lspRequest(token, () => this._client.server.textDocumentCodeAction({
             textDocument: translated.textDocument,
             range: this._client.bridge.translateRange(model, range),
             context: {
-                diagnostics: context.markers.map(marker => ({
-                    range: this._client.bridge.translateRange(model, monaco.Range.lift(marker)),
-                    message: marker.message,
-                    severity: toLspDiagnosticSeverity(marker.severity),
-                })),
+                diagnostics: context.markers.map(marker => this._toDiagnostic(uri, marker, model)),
+                // `only` is how the editor asks for one specific kind — the
+                // organize-imports and source-action entry points. Dropping it
+                // made every one of those requests a generic "all actions" ask.
+                only: toLspCodeActionKinds(context.only),
                 triggerKind: toLspCodeActionTriggerKind(context.trigger),
             },
-        });
+        }));
 
         if (!result) {
             return null;
@@ -111,8 +124,11 @@ class LspCodeActionProvider implements monaco.languages.CodeActionProvider {
                         kind: toMonacoCodeActionKind(codeAction.kind),
                         isPreferred: codeAction.isPreferred,
                         disabled: codeAction.disabled?.reason,
-                        edit: codeAction.edit ? toMonacoWorkspaceEdit(codeAction.edit, this._client) : undefined,
+                        edit: codeAction.edit ? toMonacoWorkspaceEdit(codeAction.edit, this._client, 'codeAction') : undefined,
                         command: toMonacoCommand(codeAction.command),
+                        diagnostics: codeAction.diagnostics
+                            ? context.markers.filter(m => this._client.diagnostics.match(uri, m) !== undefined)
+                            : undefined,
                         _lspAction: codeAction,
                     };
                     return monacoAction;
@@ -121,49 +137,34 @@ class LspCodeActionProvider implements monaco.languages.CodeActionProvider {
             dispose: () => { },
         };
     }
+
+    /**
+     * The diagnostic to send with a code-action request.
+     *
+     * Prefers the original the server published, because `data`, the
+     * structured `code` and `relatedInformation` never survive the trip
+     * through a Monaco marker — and those are precisely the fields
+     * tsserver and eslint match their quick fixes against. Reconstruction
+     * from the marker is the fallback for markers this client didn't publish
+     * (Monaco's own JSON/CSS/TS workers, for instance).
+     */
+    private _toDiagnostic(
+        uri: string,
+        marker: monaco.editor.IMarkerData,
+        model: monaco.editor.ITextModel
+    ): Diagnostic {
+        const original = this._client.diagnostics.match(uri, marker);
+        if (original) {
+            return original;
+        }
+        return toLspDiagnostic(marker, this._client.bridge, model);
+    }
 }
 
-function toMonacoWorkspaceEdit(
-    edit: WorkspaceEdit,
-    client: LspConnection
-): monaco.languages.WorkspaceEdit {
-    const edits: monaco.languages.IWorkspaceTextEdit[] = [];
-
-    if (edit.changes) {
-        for (const uri in edit.changes) {
-            const textEdits = edit.changes[uri];
-            for (const textEdit of textEdits) {
-                const translated = client.bridge.translateBackRange({ uri }, textEdit.range);
-                edits.push({
-                    resource: translated.textModel.uri,
-                    versionId: undefined,
-                    textEdit: {
-                        range: translated.range,
-                        text: textEdit.newText,
-                    },
-                });
-            }
-        }
+/** Monaco passes a single requested kind; LSP takes a list. */
+function toLspCodeActionKinds(only: string | undefined): CodeActionKind[] | undefined {
+    if (!only) {
+        return undefined;
     }
-
-    if (edit.documentChanges) {
-        for (const change of edit.documentChanges) {
-            if ('textDocument' in change) {
-                const uri = change.textDocument.uri;
-                for (const textEdit of change.edits) {
-                    const translated = client.bridge.translateBackRange({ uri }, textEdit.range);
-                    edits.push({
-                        resource: translated.textModel.uri,
-                        versionId: change.textDocument.version ?? undefined,
-                        textEdit: {
-                            range: translated.range,
-                            text: textEdit.newText,
-                        },
-                    });
-                }
-            }
-        }
-    }
-
-    return { edits };
+    return [only as CodeActionKind];
 }

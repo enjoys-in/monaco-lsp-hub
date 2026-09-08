@@ -25,9 +25,11 @@ import { LspDiagnosticsFeature } from "./features/LspDiagnosticsFeature";
 import { LspDocumentColorFeature } from "./features/LspDocumentColorFeature";
 import { LspLinkedEditingRangeFeature } from "./features/LspLinkedEditingRangeFeature";
 import { LspRangeSemanticTokensFeature } from "./features/LspRangeSemanticTokensFeature";
-import { api, type ShowMessageParams, type LogMessageParams, type ShowMessageRequestParams, type MessageActionItem, type ApplyWorkspaceEditParams, type ConfigurationParams, type ProgressParams, type WorkDoneProgressCreateParams, type WorkDoneProgressBegin, type WorkDoneProgressReport, type WorkDoneProgressEnd } from "./types";
+import { LspExecuteCommandFeature } from "./features/LspExecuteCommandFeature";
+import { api, type ShowMessageParams, type LogMessageParams, type ShowMessageRequestParams, type MessageActionItem, type ApplyWorkspaceEditParams, type ConfigurationParams, type ProgressParams, type WorkDoneProgressCreateParams, type WorkDoneProgressBegin, type WorkDoneProgressReport, type WorkDoneProgressEnd, type TextEdit, type CreateFile, type RenameFile, type DeleteFile } from "./types";
 import { LspConnection } from "./LspConnection";
 import { LspCapabilitiesRegistry } from './LspCapabilitiesRegistry';
+import { LspDiagnosticStore } from './LspDiagnosticStore';
 import { TextDocumentSynchronizer } from "./TextDocumentSynchronizer";
 import { DisposableStore, IDisposable } from "./utils";
 
@@ -36,15 +38,21 @@ export interface LspClientCallbacks {
     onLogMessage?: (params: LogMessageParams) => void;
     onShowMessageRequest?: (params: ShowMessageRequestParams) => Promise<MessageActionItem | null>;
     onProgress?: (token: string | number, value: WorkDoneProgressBegin | WorkDoneProgressReport | WorkDoneProgressEnd) => void;
+    /** Called when the initialize handshake fails */
+    onInitializeError?: (error: unknown) => void;
 }
 
-export class MonacoLspClient {
-    private _connection: LspConnection;
+export class MonacoLspClient implements IDisposable {
+    private readonly _connection: LspConnection;
     private readonly _capabilitiesRegistry: LspCapabilitiesRegistry;
     private readonly _bridge: TextDocumentSynchronizer;
-    private _progressTokens = new Set<string | number>();
+    private readonly _diagnostics: LspDiagnosticStore;
+    private readonly _store = new DisposableStore();
+    private readonly _progressTokens = new Set<string | number>();
+    private _executeCommandFeature?: LspExecuteCommandFeature;
+    private _disposed = false;
 
-    private _initPromise: Promise<void>;
+    private readonly _initPromise: Promise<void>;
 
     constructor(transport: IMessageTransport, callbacks: LspClientCallbacks = {}) {
         const c = TypedChannel.fromTransport(transport);
@@ -95,24 +103,68 @@ export class MonacoLspClient {
         const s = api.getServer(c, clientHandler);
         c.startListen();
 
-        this._capabilitiesRegistry = new LspCapabilitiesRegistry(c);
+        this._capabilitiesRegistry = this._store.add(new LspCapabilitiesRegistry(c));
 
         // Workspace-level capabilities
-        this._capabilitiesRegistry.addStaticClientCapabilities({
+        this._store.add(this._capabilitiesRegistry.addStaticClientCapabilities({
             workspace: {
                 applyEdit: true,
                 workspaceEdit: {
                     documentChanges: true,
                 },
             },
+        }));
+
+        this._bridge = this._store.add(new TextDocumentSynchronizer(s.server, this._capabilitiesRegistry));
+        this._diagnostics = new LspDiagnosticStore();
+
+        this._connection = new LspConnection(s.server, this._bridge, this._capabilitiesRegistry, c, this._diagnostics);
+        this._store.add(this.createFeatures());
+
+        this._initPromise = this._init().catch((err) => {
+            console.error('[LSP] initialize failed:', err);
+            callbacks.onInitializeError?.(err);
+            throw err;
         });
+        // The promise is surfaced through `ready`; swallow the duplicate
+        // rejection here so a failed handshake isn't an unhandled rejection.
+        void this._initPromise.catch(() => { });
+    }
 
-        this._bridge = new TextDocumentSynchronizer(s.server, this._capabilitiesRegistry);
+    /**
+     * Resolves once `initialize`/`initialized` have completed and the server's
+     * capabilities are registered. Requests issued before this are answered
+     * with an error by a spec-compliant server, so callers that report
+     * "connected" should await it.
+     */
+    public get ready(): Promise<void> {
+        return this._initPromise;
+    }
 
-        this._connection = new LspConnection(s.server, this._bridge, this._capabilitiesRegistry, c);
-        this.createFeatures();
+    public get connection(): LspConnection {
+        return this._connection;
+    }
 
-        this._initPromise = this._init();
+    /** Run a command on the server (the same path code lenses use). */
+    public executeCommand(command: string, args: unknown[] = []): Promise<unknown> {
+        if (!this._executeCommandFeature) {
+            return Promise.resolve(undefined);
+        }
+        return this._executeCommandFeature.executeCommand(command, args);
+    }
+
+    public dispose(): void {
+        if (this._disposed) {
+            return;
+        }
+        this._disposed = true;
+        // Disposes every feature, which unregisters its Monaco providers, plus
+        // the synchronizer (closing open documents) and the capability
+        // registry. Without this each connection left a full set of providers
+        // behind, pointed at a dead socket.
+        this._store.dispose();
+        this._diagnostics.clear();
+        this._progressTokens.clear();
     }
 
     private async _init() {
@@ -122,6 +174,10 @@ export class MonacoLspClient {
             rootUri: null,
         });
 
+        if (this._disposed) {
+            return;
+        }
+
         this._connection.server.initialized({});
         this._capabilitiesRegistry.setServerCapabilities(result.capabilities);
     }
@@ -129,46 +185,141 @@ export class MonacoLspClient {
     private _applyWorkspaceEdit(params: ApplyWorkspaceEditParams): { applied: boolean; failureReason?: string } {
         try {
             const edit = params.edit;
+
             if (edit.changes) {
                 for (const [uri, edits] of Object.entries(edit.changes)) {
-                    const monacoUri = monaco.Uri.parse(uri);
-                    const model = monaco.editor.getModel(monacoUri);
-                    if (!model) continue;
-                    const monacoEdits = edits.map(e => ({
-                        range: new monaco.Range(
-                            e.range.start.line + 1, e.range.start.character + 1,
-                            e.range.end.line + 1, e.range.end.character + 1,
-                        ),
-                        text: e.newText,
-                    }));
-                    model.pushEditOperations([], monacoEdits, () => null);
+                    this._applyTextEdits(uri, edits);
                 }
             }
+
             if (edit.documentChanges) {
+                // documentChanges are ordered and may interleave file
+                // operations with text edits, so they're applied in sequence
+                // rather than filtered down to text edits only.
                 for (const change of edit.documentChanges) {
                     if ('textDocument' in change) {
-                        const monacoUri = monaco.Uri.parse(change.textDocument.uri);
-                        const model = monaco.editor.getModel(monacoUri);
-                        if (!model) continue;
-                        const monacoEdits = change.edits.map(e => ({
-                            range: new monaco.Range(
-                                e.range.start.line + 1, e.range.start.character + 1,
-                                e.range.end.line + 1, e.range.end.character + 1,
-                            ),
-                            text: e.newText,
-                        }));
-                        model.pushEditOperations([], monacoEdits, () => null);
+                        this._applyTextEdits(change.textDocument.uri, change.edits);
+                    } else if ('kind' in change) {
+                        const failure = this._applyFileOperation(change);
+                        if (failure) {
+                            return { applied: false, failureReason: failure };
+                        }
                     }
                 }
             }
+
             return { applied: true };
         } catch (err) {
             return { applied: false, failureReason: String(err) };
         }
     }
 
+    private _applyTextEdits(uri: string, edits: readonly TextEdit[]): void {
+        const model = monaco.editor.getModel(monaco.Uri.parse(uri));
+        if (!model || edits.length === 0) {
+            return;
+        }
+        const monacoEdits = edits.map(e => ({
+            range: new monaco.Range(
+                e.range.start.line + 1, e.range.start.character + 1,
+                e.range.end.line + 1, e.range.end.character + 1,
+            ),
+            text: e.newText,
+            forceMoveMarkers: true,
+        }));
+        model.pushEditOperations([], monacoEdits, () => null);
+    }
+
+    /**
+     * Create / rename / delete, applied against Monaco's model registry.
+     *
+     * These used to be skipped while still reporting `applied: true`, so a
+     * server that asked for a file to be created believed it had been.
+     */
+    /**
+     * Create / rename / delete, applied against Monaco's model registry.
+     *
+     * These used to be skipped while still reporting `applied: true`, so a
+     * server that asked for a file to be created believed it had been. Returns
+     * a failure reason, or undefined on success.
+     */
+    private _applyFileOperation(change: CreateFile | RenameFile | DeleteFile): string | undefined {
+        try {
+            switch (change.kind) {
+                case 'create':
+                    return this._createFile(change);
+                case 'rename':
+                    return this._renameFile(change);
+                case 'delete':
+                    return this._deleteFile(change);
+                default:
+                    return `Unsupported file operation: ${(change as { kind: string }).kind}`;
+            }
+        } catch (err) {
+            return String(err);
+        }
+    }
+
+    private _createFile(change: CreateFile): string | undefined {
+        const options = change.options ?? {};
+        const uri = monaco.Uri.parse(change.uri);
+        const existing = monaco.editor.getModel(uri);
+
+        if (existing) {
+            if (options.ignoreIfExists) return undefined;
+            if (!options.overwrite) return `File already exists: ${uri.toString()}`;
+            existing.setValue('');
+            return undefined;
+        }
+
+        monaco.editor.createModel('', undefined, uri);
+        return undefined;
+    }
+
+    private _renameFile(change: RenameFile): string | undefined {
+        const options = change.options ?? {};
+        const oldUri = monaco.Uri.parse(change.oldUri);
+        const newUri = monaco.Uri.parse(change.newUri);
+
+        const source = monaco.editor.getModel(oldUri);
+        if (!source) {
+            // RenameFileOptions has no ignoreIfNotExists in the protocol, so a
+            // missing source is simply a failure.
+            return `File not found: ${oldUri.toString()}`;
+        }
+
+        const existing = monaco.editor.getModel(newUri);
+        if (existing && !options.overwrite) {
+            return options.ignoreIfExists ? undefined : `File already exists: ${newUri.toString()}`;
+        }
+
+        // A Monaco model's URI is immutable, so a rename is a new model holding
+        // the old content plus disposal of the original (which sends didClose).
+        const content = source.getValue();
+        const languageId = source.getLanguageId();
+        existing?.dispose();
+        monaco.editor.createModel(content, languageId, newUri);
+        source.dispose();
+        return undefined;
+    }
+
+    private _deleteFile(change: DeleteFile): string | undefined {
+        const options = change.options ?? {};
+        const uri = monaco.Uri.parse(change.uri);
+        const model = monaco.editor.getModel(uri);
+
+        if (!model) {
+            return options.ignoreIfNotExists ? undefined : `File not found: ${uri.toString()}`;
+        }
+
+        model.dispose();
+        return undefined;
+    }
+
     protected createFeatures(): IDisposable {
         const store = new DisposableStore();
+
+        this._executeCommandFeature = store.add(new LspExecuteCommandFeature(this._connection));
 
         store.add(new LspCompletionFeature(this._connection));
         store.add(new LspHoverFeature(this._connection));

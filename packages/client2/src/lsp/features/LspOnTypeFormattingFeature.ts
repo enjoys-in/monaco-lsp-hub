@@ -2,6 +2,7 @@ import * as monaco from 'monaco-editor';
 import { capabilities, DocumentOnTypeFormattingRegistrationOptions } from '../types';
 import { Disposable } from '../utils';
 import { LspConnection } from '../LspConnection';
+import { lspRequest } from './cancellation';
 import { toMonacoLanguageSelector } from './common';
 
 export class LspOnTypeFormattingFeature extends Disposable {
@@ -49,7 +50,7 @@ class LspOnTypeFormattingProvider implements monaco.languages.OnTypeFormattingEd
     ): Promise<monaco.languages.TextEdit[] | null> {
         const translated = this._client.bridge.translate(model, position);
 
-        const result = await this._client.server.textDocumentOnTypeFormatting({
+        const result = await lspRequest(token, () => this._client.server.textDocumentOnTypeFormatting({
             textDocument: translated.textDocument,
             position: translated.position,
             ch,
@@ -57,14 +58,14 @@ class LspOnTypeFormattingProvider implements monaco.languages.OnTypeFormattingEd
                 tabSize: options.tabSize,
                 insertSpaces: options.insertSpaces,
             },
-        });
+        }));
 
         if (!result) {
             return null;
         }
 
         return result.map(edit => ({
-            range: this._client.bridge.translateBackRange(translated.textDocument, edit.range).range,
+            range: this._client.bridge.toMonacoRange(edit.range),
             text: edit.newText,
         }));
     }

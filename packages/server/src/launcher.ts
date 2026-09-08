@@ -23,7 +23,34 @@ import type { LspMessage } from "./lsp/types.js";
 /** Map language path IDs to file extensions for pre-scaffolding */
 const LANG_TO_EXT: Record<string, string> = {
     rust: "rs", go: "go", typescript: "ts", javascript: "js", python: "py", java: "java",
+    typescriptreact: "ts", javascriptreact: "js",
 };
+
+/** Grace period between SIGTERM and SIGKILL for a language server */
+const KILL_GRACE_MS = 2000;
+/** Delay before removing the workspace, so a dying server stops writing to it */
+const WORKSPACE_RM_DELAY_MS = 250;
+
+/** Teardown hooks for every live session, so shutdown can reclaim them all */
+const liveSessions = new Set<(reason: string, code?: number) => void>();
+
+/** Number of language server sessions currently running */
+export function getActiveSessionCount(): number {
+    return liveSessions.size;
+}
+
+/**
+ * Stop every running session and remove its temp workspace.
+ *
+ * Called on SIGINT/SIGTERM: a hard shutdown otherwise leaves one
+ * `lsp-workspace-*` directory behind per open connection, since teardown
+ * normally hangs off the socket's close event.
+ */
+export function closeAllSessions(reason: string): void {
+    for (const close of [...liveSessions]) {
+        close(reason, 1012);
+    }
+}
 
 export function launchLanguageServer(
     ws: WebSocket,
@@ -55,9 +82,40 @@ export function launchLanguageServer(
 
     let transport: TransportBridge;
     let serverProcess: ChildProcess | undefined;
+    let closed = false;
+
+    // ── Teardown ─────────────────────────────────────────────────────────────
+    // One idempotent path for every way a session can end: client disconnect,
+    // socket error, server crash, or failed spawn.
+    const closeSession = (reason: string, code = 1000): void => {
+        if (closed) return;
+        closed = true;
+        liveSessions.delete(closeSession);
+
+        try {
+            transport.dispose();
+        } catch (err) {
+            console.error(`[LSP] ${config.name} transport dispose failed:`, err);
+        }
+
+        if (serverProcess && serverProcess.exitCode === null && serverProcess.signalCode === null) {
+            const sigkill = setTimeout(() => {
+                try { serverProcess?.kill("SIGKILL"); } catch { /* already gone */ }
+            }, KILL_GRACE_MS);
+            serverProcess.once("exit", () => clearTimeout(sigkill));
+            try { serverProcess.kill(); } catch { /* already gone */ }
+        }
+
+        if (ws.readyState === ws.OPEN || ws.readyState === ws.CONNECTING) {
+            ws.close(code, reason);
+        }
+
+        setTimeout(() => workspace.cleanup(), WORKSPACE_RM_DELAY_MS);
+    };
 
     if (transportType === "jsonrpc") {
-        // jsonrpc mode: createServerProcess inside the transport handles spawn
+        // jsonrpc mode: createServerProcess inside the transport handles spawn.
+        // The process handle isn't exposed, so stdout closing is the exit signal.
         transport = new JsonRpcTransportBridge({
             ws,
             serverName: config.name,
@@ -66,6 +124,10 @@ export function launchLanguageServer(
             spawnOptions: {
                 cwd: workspace.dir,
                 shell: process.platform === "win32",
+            },
+            onServerExit: (reason) => {
+                console.log(`[LSP] ${reason}`);
+                closeSession(reason, 1011);
             },
             ...handlers,
         });
@@ -92,7 +154,17 @@ export function launchLanguageServer(
         });
     }
 
-    transport.start();
+    liveSessions.add(closeSession);
+
+    // A throw here (bad spawn arguments, missing transport dependency) used to
+    // escape into the WS upgrade callback and take down the whole hub.
+    try {
+        transport.start();
+    } catch (err) {
+        console.error(`[LSP] Failed to start ${config.name} transport:`, err);
+        closeSession(`Failed to start ${config.name}`, 1011);
+        return;
+    }
 
     // ── Stderr logging (raw mode only — jsonrpc mode has the process inside) ─
     serverProcess?.stderr?.on("data", (data: Buffer) => {
@@ -103,38 +175,25 @@ export function launchLanguageServer(
         console.error(`[LSP:${config.name}:stderr]`, line);
     });
 
-    // ── Cleanup ──────────────────────────────────────────────────────────────
-
-    const cleanup = () => {
-        transport.dispose();
-        serverProcess?.kill();
-        workspace.cleanup();
-    };
+    // ── Session lifecycle ────────────────────────────────────────────────────
 
     ws.on("close", () => {
         console.log(`[LSP] Client disconnected, stopping ${config.name}`);
-        cleanup();
+        closeSession("client disconnected");
     });
 
     ws.on("error", (err) => {
         console.error(`[LSP:${config.name}:ws-error]`, err.message);
-        cleanup();
+        closeSession("websocket error", 1011);
     });
 
     serverProcess?.on("exit", (code, signal) => {
         console.log(`[LSP] ${config.name} exited (code: ${code}, signal: ${signal})`);
-        transport.dispose();
-        workspace.cleanup();
-        if (ws.readyState === ws.OPEN) {
-            ws.close(1000, `${config.name} server exited`);
-        }
+        closeSession(`${config.name} server exited`, 1011);
     });
 
     serverProcess?.on("error", (err) => {
         console.error(`[LSP] ${config.name} process error:`, err.message);
-        if (ws.readyState === ws.OPEN) {
-            ws.close(1011, `${config.name} process error`);
-        }
+        closeSession(`${config.name} process error`, 1011);
     });
 }
-

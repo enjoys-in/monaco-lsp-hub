@@ -1,6 +1,11 @@
 // LSP transport wrapper — wraps a WebSocket transport to intercept
-// server→client notifications (window/showMessage, publishDiagnostics, etc.)
-// while still passing everything through to MonacoLspClient.
+// server→client notifications (window/showMessage, window/logMessage) and
+// surface them as toasts, while still passing everything through to
+// MonacoLspClient.
+//
+// Diagnostics are deliberately *not* intercepted here: the editor's
+// onDidChangeMarkers event already reports them once the client has applied
+// them, and mirroring publishDiagnostics on a timer raced that path.
 
 import { showToast, lspMessageTypeToToast } from "./toast.js";
 
@@ -13,18 +18,11 @@ type LspMessage = {
     error?: any;
 };
 
-export type DiagnosticCallback = (uri: string, diagnostics: any[]) => void;
-
 /**
  * Create a proxy transport that intercepts server messages before Monaco sees them.
  * Returns the proxy transport (pass this to MonacoLspClient instead of the raw transport).
  */
-export function createInterceptingTransport(
-    transport: any,
-    callbacks: {
-        onDiagnostics?: DiagnosticCallback;
-    } = {},
-): any {
+export function createInterceptingTransport(transport: any): any {
     const proxy = Object.create(transport);
 
     // Intercept setListener to wrap the message listener
@@ -36,39 +34,30 @@ export function createInterceptingTransport(
         }
 
         originalSetListener((message: LspMessage) => {
-            // Intercept window/showMessage
-            if (message.method === "window/showMessage" && message.params) {
-                const { type, message: text } = message.params;
-                showToast({
-                    message: text,
-                    type: lspMessageTypeToToast(type),
-                });
-            }
+            if (message.params) {
+                switch (message.method) {
+                    case "window/showMessage":
+                        showToast({
+                            message: message.params.message,
+                            type: lspMessageTypeToToast(message.params.type),
+                        });
+                        break;
 
-            // Intercept window/showMessageRequest — show as toast with actions
-            if (message.method === "window/showMessageRequest" && message.params) {
-                const { type, message: text } = message.params;
-                showToast({
-                    message: text,
-                    type: lspMessageTypeToToast(type),
-                    duration: 0, // sticky
-                });
-            }
+                    case "window/showMessageRequest":
+                        showToast({
+                            message: message.params.message,
+                            type: lspMessageTypeToToast(message.params.type),
+                            duration: 0, // sticky
+                        });
+                        break;
 
-            // Intercept window/logMessage — log to console
-            if (message.method === "window/logMessage" && message.params) {
-                const { type, message: text } = message.params;
-                const levels = ["", "error", "warn", "info", "log"];
-                const level = levels[type] ?? "log";
-                (console as any)[level]?.(`[LSP] ${text}`);
-            }
-
-            // Intercept textDocument/publishDiagnostics
-            if (message.method === "textDocument/publishDiagnostics" && message.params) {
-                callbacks.onDiagnostics?.(
-                    message.params.uri,
-                    message.params.diagnostics ?? [],
-                );
+                    case "window/logMessage": {
+                        const levels = ["", "error", "warn", "info", "log"];
+                        const level = levels[message.params.type] ?? "log";
+                        (console as any)[level]?.(`[LSP] ${message.params.message}`);
+                        break;
+                    }
+                }
             }
 
             // Always pass through to Monaco's listener
@@ -76,9 +65,13 @@ export function createInterceptingTransport(
         });
     };
 
-    // Proxy send/state/toString to the original transport
+    // Proxy send/close/state to the original transport. `close` is assigned
+    // only when it exists — writing `undefined` would shadow the prototype's
+    // method and make the proxy unclosable.
     proxy.send = transport.send.bind(transport);
-    proxy.close = transport.close?.bind(transport);
+    if (typeof transport.close === "function") {
+        proxy.close = transport.close.bind(transport);
+    }
 
     Object.defineProperty(proxy, "state", {
         get: () => transport.state,

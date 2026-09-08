@@ -39,4 +39,10 @@ export interface JsonRpcTransportOptions extends MessageHandlers {
     command: string;
     args: string[];
     spawnOptions: SpawnOptions;
+    /**
+     * Called when the language server's stdout closes — i.e. the process died
+     * or never started. The transport owns the process in this mode, so this is
+     * the only signal the session has that the server is gone.
+     */
+    onServerExit?: (reason: string) => void;
 }

@@ -2,6 +2,7 @@ import * as monaco from 'monaco-editor';
 import { capabilities, ReferenceRegistrationOptions } from '../types';
 import { Disposable } from '../utils';
 import { LspConnection } from '../LspConnection';
+import { lspRequest } from './cancellation';
 import { toMonacoLanguageSelector } from './common';
 
 export class LspReferencesFeature extends Disposable {
@@ -41,24 +42,23 @@ class LspReferenceProvider implements monaco.languages.ReferenceProvider {
     ): Promise<monaco.languages.Location[] | null> {
         const translated = this._client.bridge.translate(model, position);
 
-        const result = await this._client.server.textDocumentReferences({
+        const result = await lspRequest(token, () => this._client.server.textDocumentReferences({
             textDocument: translated.textDocument,
             position: translated.position,
             context: {
                 includeDeclaration: context.includeDeclaration,
             },
-        });
+        }));
 
         if (!result) {
             return null;
         }
 
-        return result.map(loc => {
-            const translated = this._client.bridge.translateBackRange({ uri: loc.uri }, loc.range);
-            return {
-                uri: translated.textModel.uri,
-                range: translated.range,
-            };
-        });
+        // References legitimately point at files the editor has never opened,
+        // so resolve the URI without requiring a model.
+        return result.map(loc => ({
+            uri: this._client.bridge.resolveUri(loc.uri),
+            range: this._client.bridge.toMonacoRange(loc.range),
+        }));
     }
 }

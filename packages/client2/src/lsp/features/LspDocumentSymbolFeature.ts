@@ -2,6 +2,7 @@ import * as monaco from 'monaco-editor';
 import { capabilities, DocumentSymbolRegistrationOptions, DocumentSymbol, SymbolInformation, SymbolTag } from '../types';
 import { Disposable } from '../utils';
 import { LspConnection } from '../LspConnection';
+import { lspRequest } from './cancellation';
 import { toMonacoLanguageSelector } from './common';
 import { lspSymbolKindToMonacoSymbolKind, toMonacoSymbolKind, toMonacoSymbolTag } from './common';
 
@@ -47,9 +48,9 @@ class LspDocumentSymbolProvider implements monaco.languages.DocumentSymbolProvid
     ): Promise<monaco.languages.DocumentSymbol[] | null> {
         const translated = this._client.bridge.translate(model, new monaco.Position(1, 1));
 
-        const result = await this._client.server.textDocumentDocumentSymbol({
+        const result = await lspRequest(token, () => this._client.server.textDocumentDocumentSymbol({
             textDocument: translated.textDocument,
-        });
+        }));
 
         if (!result) {
             return null;
@@ -79,8 +80,8 @@ function toMonacoDocumentSymbol(
         detail: symbol.detail || '',
         kind: toMonacoSymbolKind(symbol.kind),
         tags: symbol.tags?.map(tag => toMonacoSymbolTag(tag)).filter((t): t is monaco.languages.SymbolTag => t !== undefined) || [],
-        range: client.bridge.translateBackRange(textDocument, symbol.range).range,
-        selectionRange: client.bridge.translateBackRange(textDocument, symbol.selectionRange).range,
+        range: client.bridge.toMonacoRange(symbol.range),
+        selectionRange: client.bridge.toMonacoRange(symbol.selectionRange),
         children: symbol.children?.map(child => toMonacoDocumentSymbol(child, client, textDocument)) || [],
     };
 }
@@ -94,8 +95,8 @@ function toMonacoSymbolInformation(
         detail: '',
         kind: toMonacoSymbolKind(symbol.kind),
         tags: symbol.tags?.map(tag => toMonacoSymbolTag(tag)).filter((t): t is monaco.languages.SymbolTag => t !== undefined) || [],
-        range: client.bridge.translateBackRange({ uri: symbol.location.uri }, symbol.location.range).range,
-        selectionRange: client.bridge.translateBackRange({ uri: symbol.location.uri }, symbol.location.range).range,
+        range: client.bridge.toMonacoRange(symbol.location.range),
+        selectionRange: client.bridge.toMonacoRange(symbol.location.range),
         children: [],
     };
 }

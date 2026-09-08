@@ -2,6 +2,7 @@ import * as monaco from 'monaco-editor';
 import { capabilities, DocumentHighlightRegistrationOptions } from '../types';
 import { Disposable } from '../utils';
 import { LspConnection } from '../LspConnection';
+import { lspRequest } from './cancellation';
 import { toMonacoLanguageSelector } from './common';
 import { toMonacoDocumentHighlightKind } from './common';
 
@@ -41,17 +42,17 @@ class LspDocumentHighlightProvider implements monaco.languages.DocumentHighlight
     ): Promise<monaco.languages.DocumentHighlight[] | null> {
         const translated = this._client.bridge.translate(model, position);
 
-        const result = await this._client.server.textDocumentDocumentHighlight({
+        const result = await lspRequest(token, () => this._client.server.textDocumentDocumentHighlight({
             textDocument: translated.textDocument,
             position: translated.position,
-        });
+        }));
 
         if (!result) {
             return null;
         }
 
         return result.map(highlight => ({
-            range: this._client.bridge.translateBackRange(translated.textDocument, highlight.range).range,
+            range: this._client.bridge.toMonacoRange(highlight.range),
             kind: toMonacoDocumentHighlightKind(highlight.kind),
         }));
     }

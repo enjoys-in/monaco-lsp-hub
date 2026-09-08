@@ -2,7 +2,8 @@ import * as monaco from 'monaco-editor';
 import { capabilities, HoverRegistrationOptions, MarkupContent, MarkedString, MarkupKind } from '../types';
 import { Disposable } from '../utils';
 import { LspConnection } from '../LspConnection';
-import { toMonacoLanguageSelector } from './common';
+import { lspRequest } from './cancellation';
+import { toMarkdown, toMonacoLanguageSelector } from './common';
 
 export class LspHoverFeature extends Disposable {
     constructor(
@@ -41,10 +42,10 @@ class LspHoverProvider implements monaco.languages.HoverProvider {
     ): Promise<monaco.languages.Hover | null> {
         const translated = this._client.bridge.translate(model, position);
 
-        const result = await this._client.server.textDocumentHover({
+        const result = await lspRequest(token, () => this._client.server.textDocumentHover({
             textDocument: translated.textDocument,
             position: translated.position,
-        });
+        }));
 
         if (!result || !result.contents) {
             return null;
@@ -52,7 +53,7 @@ class LspHoverProvider implements monaco.languages.HoverProvider {
 
         return {
             contents: toMonacoMarkdownString(result.contents),
-            range: result.range ? this._client.bridge.translateBackRange(translated.textDocument, result.range).range : undefined,
+            range: result.range ? this._client.bridge.toMonacoRange(result.range) : undefined,
         };
     }
 }
@@ -68,12 +69,12 @@ function toMonacoMarkdownString(
 
 function toSingleMarkdownString(content: MarkupContent | MarkedString): monaco.IMarkdownString {
     if (typeof content === 'string') {
-        return { value: content, isTrusted: true };
+        return { value: content, isTrusted: false };
     }
     if ('kind' in content) {
         // MarkupContent
-        return { value: content.value, isTrusted: true };
+        return { value: content.value, isTrusted: false };
     }
     // MarkedString with language
-    return { value: `\`\`\`${content.language}\n${content.value}\n\`\`\``, isTrusted: true };
+    return { value: `\`\`\`${content.language}\n${content.value}\n\`\`\``, isTrusted: false };
 }

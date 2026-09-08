@@ -12,6 +12,19 @@ export interface LanguageConfig {
     serverName: string;
     sampleCode: string;
     scaffold?: ScaffoldFile[];
+    /**
+     * Explicit workspace file name, when `main.<fileExtension>` is wrong.
+     *
+     * Java is the reason this exists: the sample declares `public class Main`,
+     * and javac (so jdtls) requires the file to be named after the public type,
+     * so `main.java` produced a permanent bogus error on every visit.
+     */
+    fileName?: string;
+}
+
+/** The file name this language's sample lives at inside the workspace. */
+export function workspaceFileName(config: LanguageConfig): string {
+    return config.fileName ?? `main.${config.fileExtension}`;
 }
 
 export const languages: Record<string, LanguageConfig> = {
@@ -352,6 +365,7 @@ main "\$@"`,
         id: "dockerfile",
         languageId: "dockerfile",
         fileExtension: "Dockerfile",
+        fileName: "Dockerfile",
         serverName: "Dockerfile Language Server",
         sampleCode: `FROM node:20-alpine AS builder
 
@@ -589,6 +603,7 @@ end`,
         id: "java",
         languageId: "java",
         fileExtension: "java",
+        fileName: "Main.java",
         serverName: "Java (Eclipse JDT LS)",
         sampleCode: `import java.util.*;
 import java.util.stream.Collectors;

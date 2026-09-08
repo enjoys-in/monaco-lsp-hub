@@ -2,6 +2,7 @@ import * as monaco from 'monaco-editor';
 import { capabilities, ImplementationRegistrationOptions } from '../types';
 import { Disposable } from '../utils';
 import { LspConnection } from '../LspConnection';
+import { lspRequest } from './cancellation';
 import { toMonacoLanguageSelector } from './common';
 import { toMonacoLocation } from "./common";
 
@@ -42,19 +43,19 @@ class LspImplementationProvider implements monaco.languages.ImplementationProvid
     ): Promise<monaco.languages.Definition | monaco.languages.LocationLink[] | null> {
         const translated = this._client.bridge.translate(model, position);
 
-        const result = await this._client.server.textDocumentImplementation({
+        const result = await lspRequest(token, () => this._client.server.textDocumentImplementation({
             textDocument: translated.textDocument,
             position: translated.position,
-        });
+        }));
 
         if (!result) {
             return null;
         }
 
         if (Array.isArray(result)) {
-            return result.map(loc => toMonacoLocation(loc, this._client));
+            return result.map(loc => toMonacoLocation(loc, this._client, translated.textDocument.uri));
         }
 
-        return toMonacoLocation(result, this._client);
+        return toMonacoLocation(result, this._client, translated.textDocument.uri);
     }
 }

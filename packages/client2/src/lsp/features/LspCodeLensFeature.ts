@@ -2,6 +2,7 @@ import * as monaco from 'monaco-editor';
 import { capabilities, CodeLensRegistrationOptions, CodeLens } from '../types';
 import { Disposable } from '../utils';
 import { LspConnection } from '../LspConnection';
+import { lspRequest } from './cancellation';
 import { toMonacoLanguageSelector } from './common';
 import { assertTargetTextModel } from '../ITextModelBridge';
 import { toMonacoCommand } from './common';
@@ -45,9 +46,9 @@ class LspCodeLensProvider implements monaco.languages.CodeLensProvider {
     ): Promise<monaco.languages.CodeLensList | null> {
         const translated = this._client.bridge.translate(model, new monaco.Position(1, 1));
 
-        const result = await this._client.server.textDocumentCodeLens({
+        const result = await lspRequest(token, () => this._client.server.textDocumentCodeLens({
             textDocument: translated.textDocument,
-        });
+        }));
 
         if (!result) {
             return null;
@@ -71,18 +72,19 @@ class LspCodeLensProvider implements monaco.languages.CodeLensProvider {
         codeLens: ExtendedCodeLens,
         token: monaco.CancellationToken
     ): Promise<monaco.languages.CodeLens> {
-        if (!this._capabilities.resolveProvider || !codeLens._lspCodeLens) {
+        const lspCodeLens = codeLens._lspCodeLens;
+        if (!this._capabilities.resolveProvider || !lspCodeLens) {
             return codeLens;
         }
 
-        const resolved = await this._client.server.codeLensResolve(codeLens._lspCodeLens);
+        const resolved = await lspRequest(token, () => this._client.server.codeLensResolve(lspCodeLens));
+
+        if (!resolved) {
+            return codeLens;
+        }
 
         if (resolved.command) {
-            codeLens.command = {
-                id: resolved.command.command,
-                title: resolved.command.title,
-                arguments: resolved.command.arguments,
-            };
+            codeLens.command = toMonacoCommand(resolved.command);
         }
 
         return codeLens;

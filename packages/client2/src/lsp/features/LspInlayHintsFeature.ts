@@ -2,7 +2,8 @@ import * as monaco from 'monaco-editor';
 import { capabilities, InlayHintRegistrationOptions, InlayHint, MarkupContent, api } from '../types';
 import { Disposable } from '../utils';
 import { LspConnection } from '../LspConnection';
-import { toMonacoLanguageSelector } from './common';
+import { toMarkdown, toMonacoLanguageSelector } from './common';
+import { lspRequest } from './cancellation';
 import { assertTargetTextModel } from '../ITextModelBridge';
 import { toMonacoCommand, toMonacoInlayHintKind } from './common';
 
@@ -75,7 +76,11 @@ class LspInlayHintsProvider implements monaco.languages.InlayHintsProvider {
         if (_capabilities.resolveProvider) {
             this.resolveInlayHint = async (hint: ExtendedInlayHint, token: monaco.CancellationToken): Promise<monaco.languages.InlayHint> => {
 
-                const resolved = await this._client.server.inlayHintResolve(hint._lspInlayHint);
+                const resolved = await lspRequest(token, () => this._client.server.inlayHintResolve(hint._lspInlayHint));
+
+                if (!resolved) {
+                    return hint;
+                }
 
                 if (resolved.tooltip) {
                     hint.tooltip = toMonacoTooltip(resolved.tooltip);
@@ -87,12 +92,8 @@ class LspInlayHintsProvider implements monaco.languages.InlayHintsProvider {
 
                 if (resolved.textEdits) {
                     hint.textEdits = resolved.textEdits.map(edit => {
-                        const translated = this._client.bridge.translateBackRange(
-                            { uri: hint._targetUri },
-                            edit.range
-                        );
                         return {
-                            range: translated.range,
+                            range: this._client.bridge.toMonacoRange(edit.range),
                             text: edit.newText,
                         };
                     });
@@ -114,12 +115,12 @@ class LspInlayHintsProvider implements monaco.languages.InlayHintsProvider {
     ): Promise<monaco.languages.InlayHintList | null> {
         const translated = this._client.bridge.translate(model, range.getStartPosition());
 
-        const result = await retryOnContentModified(async () =>
-            await this._client.server.textDocumentInlayHint({
+        const result = await lspRequest(token, () => retryOnContentModified(() =>
+            this._client.server.textDocumentInlayHint({
                 textDocument: translated.textDocument,
                 range: this._client.bridge.translateRange(model, range),
             })
-        );
+        ));
 
         if (!result) {
             return null;
@@ -154,13 +155,24 @@ class LspInlayHintsProvider implements monaco.languages.InlayHintsProvider {
     }
 }
 
+/** LSP ErrorCodes.ContentModified */
+const CONTENT_MODIFIED = -32801;
+
+function isContentModified(e: any): boolean {
+    // Matching on the message text only ever worked for servers that happen to
+    // phrase it "content modified"; the code is the actual contract.
+    return e?.code === CONTENT_MODIFIED
+        || e?.data?.code === CONTENT_MODIFIED
+        || /content modified/i.test(String(e?.message ?? ''));
+}
+
 async function retryOnContentModified<T>(cb: () => Promise<T>): Promise<T> {
     const nRetries = 3;
     for (let triesLeft = nRetries; ; triesLeft--) {
         try {
             return await cb();
         } catch (e: any) {
-            if (e.message === 'content modified' && triesLeft > 0) {
+            if (isContentModified(e) && triesLeft > 0) {
                 continue;
             }
             throw e;
@@ -196,17 +208,4 @@ function toLspInlayHintLabel(label: string | any[]): string | monaco.languages.I
     });
 }
 
-function toMonacoTooltip(tooltip: string | MarkupContent | undefined): string | monaco.IMarkdownString | undefined {
-    if (!tooltip) {
-        return undefined;
-    }
-
-    if (typeof tooltip === 'string') {
-        return tooltip;
-    }
-
-    return {
-        value: tooltip.value,
-        isTrusted: true,
-    };
-}
+const toMonacoTooltip = toMarkdown;

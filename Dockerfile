@@ -5,6 +5,7 @@ WORKDIR /app
 
 COPY package.json bun.lock* ./
 COPY packages/client/package.json ./packages/client/
+COPY packages/client2/package.json ./packages/client2/
 COPY packages/server/package.json ./packages/server/
 
 RUN bun install
@@ -22,10 +23,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 python3-pip python3-venv \
     ruby ruby-dev build-essential \
     php-cli php-xml php-mbstring php-curl \
-    && rm -rf /var/lib/apt/lists/*
-
-# ── C/C++: clangd ────────────────────────────────────────────────────────────
-RUN apt-get update && apt-get install -y --no-install-recommends clangd \
     && rm -rf /var/lib/apt/lists/*
 
 # ── Go: gopls ────────────────────────────────────────────────────────────────
@@ -189,8 +186,13 @@ ENV PATH="/usr/local/go/bin:${PATH}"
 # Rust: rust-analyzer
 COPY --from=systools /usr/local/bin/rust-analyzer /usr/local/bin/rust-analyzer
 
-# C/C++: clangd + LLVM libs
-COPY --from=systools /usr/bin/clangd /usr/local/bin/clangd
+# C/C++: clangd — installed here rather than copied from the systools stage.
+# /usr/bin/clangd is an update-alternatives symlink into /usr/lib/llvm-*/bin and
+# clangd needs its own resource directory (builtin headers) alongside it, so
+# copying that one path left a dangling link and a server that could not run.
+RUN apt-get update && apt-get install -y --no-install-recommends clangd \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf "$(readlink -f /usr/bin/clangd)" /usr/local/bin/clangd
 
 # Lua: lua-language-server (self-contained)
 COPY --from=systools /opt/lua-language-server /opt/lua-language-server

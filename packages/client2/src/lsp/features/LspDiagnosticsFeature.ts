@@ -4,9 +4,14 @@ import { Disposable, DisposableStore } from '../utils';
 import { LspConnection } from '../LspConnection';
 import { lspDiagnosticTagToMonacoMarkerTag, matchesDocumentSelector, toDiagnosticMarker } from './common';
 
+/** Distinct owner per connection, so switching servers can't leave markers behind */
+let nextOwnerId = 0;
+
 export class LspDiagnosticsFeature extends Disposable {
-	private readonly _diagnosticsMarkerOwner = 'lsp';
+	private readonly _diagnosticsMarkerOwner = `lsp-${nextOwnerId++}`;
 	private readonly _pullDiagnosticProviders = new Map<monaco.editor.ITextModel, ModelDiagnosticProvider>();
+	/** Models we have set markers on, so they can all be cleared on dispose */
+	private readonly _markedModels = new Set<monaco.editor.ITextModel>();
 
 	constructor(
 		private readonly _connection: LspConnection,
@@ -52,14 +57,45 @@ export class LspDiagnosticsFeature extends Disposable {
 		));
 	}
 
+	/**
+	 * Drop every marker this connection published.
+	 *
+	 * The owner used to be a shared constant that was never cleared, so the
+	 * previous language's errors stayed in the gutter and the problems list
+	 * after switching servers.
+	 */
+	override dispose(): void {
+		for (const model of this._markedModels) {
+			if (!model.isDisposed()) {
+				monaco.editor.setModelMarkers(model, this._diagnosticsMarkerOwner, []);
+			}
+		}
+		this._markedModels.clear();
+		for (const provider of this._pullDiagnosticProviders.values()) {
+			provider.dispose();
+		}
+		this._pullDiagnosticProviders.clear();
+		this._connection.diagnostics.clear();
+		super.dispose();
+	}
+
+	private _setMarkers(model: monaco.editor.ITextModel, markers: monaco.editor.IMarkerData[]): void {
+		monaco.editor.setModelMarkers(model, this._diagnosticsMarkerOwner, markers);
+		if (markers.length > 0) {
+			this._markedModels.add(model);
+		} else {
+			this._markedModels.delete(model);
+		}
+	}
+
 	private _addPullDiagnosticProvider(
 		model: monaco.editor.ITextModel,
 		capability: DiagnosticRegistrationOptions,
 		disposables: DisposableStore
 	): void {
-		// Check if model matches the document selector
-		const languageId = model.getLanguageId();
-
+		if (this._pullDiagnosticProviders.has(model)) {
+			return;
+		}
 		if (!matchesDocumentSelector(model, capability.documentSelector)) {
 			return;
 		}
@@ -67,38 +103,39 @@ export class LspDiagnosticsFeature extends Disposable {
 		const provider = new ModelDiagnosticProvider(
 			model,
 			this._connection,
-			this._diagnosticsMarkerOwner,
-			capability
+			capability,
+			(m, markers) => this._setMarkers(m, markers),
 		);
 
 		this._pullDiagnosticProviders.set(model, provider);
 		disposables.add(provider);
 
-		disposables.add(model.onWillDispose(() => {
+		// Tear the provider down with its model — leaving it registered kept a
+		// pending timer and an obsolete entry alive for the whole session.
+		const subscription = model.onWillDispose(() => {
+			this._pullDiagnosticProviders.get(model)?.dispose();
 			this._pullDiagnosticProviders.delete(model);
-		}));
+			this._markedModels.delete(model);
+			subscription.dispose();
+		});
+		disposables.add(subscription);
 	}
 
 	private _handlePublishDiagnostics(params: PublishDiagnosticsParams): void {
 		const uri = params.uri;
+		const diagnostics = params.diagnostics ?? [];
 
-		try {
-			const translated = this._connection.bridge.translateBack({ uri }, { line: 0, character: 0 });
-			const model = translated.textModel;
+		// Keep the originals: `data` and the structured `code` are what servers
+		// need back on a code-action request, and a Monaco marker has nowhere
+		// to put them.
+		this._connection.diagnostics.set(uri, diagnostics);
 
-			if (!model || model.isDisposed()) {
-				return;
-			}
-
-			const markers = params.diagnostics.map(diagnostic =>
-				toDiagnosticMarker(diagnostic)
-			);
-
-			monaco.editor.setModelMarkers(model, this._diagnosticsMarkerOwner, markers);
-		} catch (error) {
-			// Model not found or already disposed - this is normal when files are closed
-			console.debug(`Could not set diagnostics for ${uri}:`, error);
+		const model = this._connection.bridge.findTextModel({ uri });
+		if (!model || model.isDisposed()) {
+			return;
 		}
+
+		this._setMarkers(model, diagnostics.map(diagnostic => toDiagnosticMarker(diagnostic)));
 	}
 }
 
@@ -108,12 +145,13 @@ export class LspDiagnosticsFeature extends Disposable {
 class ModelDiagnosticProvider extends Disposable {
 	private _updateHandle: number | undefined;
 	private _previousResultId: string | undefined;
+	private _disposed = false;
 
 	constructor(
 		private readonly _model: monaco.editor.ITextModel,
 		private readonly _connection: LspConnection,
-		private readonly _markerOwner: string,
 		private readonly _capability: DiagnosticRegistrationOptions,
+		private readonly _publish: (model: monaco.editor.ITextModel, markers: monaco.editor.IMarkerData[]) => void,
 	) {
 		super();
 		this._register(this._model.onDidChangeContent(() => {
@@ -129,12 +167,12 @@ class ModelDiagnosticProvider extends Disposable {
 
 		this._updateHandle = window.setTimeout(() => {
 			this._updateHandle = undefined;
-			this._requestDiagnostics();
+			void this._requestDiagnostics();
 		}, 500);
 	}
 
 	private async _requestDiagnostics(): Promise<void> {
-		if (this._model.isDisposed()) {
+		if (this._disposed || this._model.isDisposed()) {
 			return;
 		}
 
@@ -147,57 +185,48 @@ class ModelDiagnosticProvider extends Disposable {
 				previousResultId: this._previousResultId,
 			});
 
-			if (this._model.isDisposed()) {
+			if (this._disposed || this._model.isDisposed()) {
 				return;
 			}
 
-			this._handleDiagnosticReport(result);
+			this._handleDiagnosticReport(translated.textDocument.uri, result);
 		} catch (error) {
 			console.error('Error requesting diagnostics:', error);
 		}
 	}
 
-	private _handleDiagnosticReport(report: DocumentDiagnosticReport): void {
+	private _handleDiagnosticReport(uri: string, report: DocumentDiagnosticReport): void {
 		if (report.kind === 'full') {
-			// Full diagnostic report
 			this._previousResultId = report.resultId;
+			this._connection.diagnostics.set(uri, report.items);
+			this._publish(this._model, report.items.map(diagnostic => toDiagnosticMarker(diagnostic)));
 
-			const markers = report.items.map(diagnostic => toDiagnosticMarker(diagnostic));
-			monaco.editor.setModelMarkers(this._model, this._markerOwner, markers);
-
-			// Handle related documents if present
 			if ('relatedDocuments' in report && report.relatedDocuments) {
 				this._handleRelatedDocuments(report.relatedDocuments);
 			}
 		} else if (report.kind === 'unchanged') {
 			// Unchanged report - diagnostics are still valid
 			this._previousResultId = report.resultId;
-			// No need to update markers
 		}
 	}
 
 	private _handleRelatedDocuments(relatedDocuments: { [key: string]: any }): void {
 		for (const [uri, report] of Object.entries(relatedDocuments)) {
-			try {
-				const translated = this._connection.bridge.translateBack({ uri }, { line: 0, character: 0 });
-				const model = translated.textModel;
-
-				if (!model || model.isDisposed()) {
-					continue;
-				}
-
-				if (report.kind === 'full') {
-					const markers = report.items.map((diagnostic: Diagnostic) => toDiagnosticMarker(diagnostic));
-					monaco.editor.setModelMarkers(model, this._markerOwner, markers);
-				}
-			} catch (error) {
-				// Model not found - this is normal
-				console.debug(`Could not set related diagnostics for ${uri}:`, error);
+			if (report?.kind !== 'full') {
+				continue;
 			}
+			this._connection.diagnostics.set(uri, report.items ?? []);
+
+			const model = this._connection.bridge.findTextModel({ uri });
+			if (!model || model.isDisposed()) {
+				continue;
+			}
+			this._publish(model, (report.items as Diagnostic[]).map(diagnostic => toDiagnosticMarker(diagnostic)));
 		}
 	}
 
 	override dispose(): void {
+		this._disposed = true;
 		if (this._updateHandle !== undefined) {
 			clearTimeout(this._updateHandle);
 			this._updateHandle = undefined;

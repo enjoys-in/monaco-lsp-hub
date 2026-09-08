@@ -2,6 +2,7 @@ import * as monaco from 'monaco-editor';
 import { capabilities, LinkedEditingRangeRegistrationOptions } from '../types';
 import { Disposable } from '../utils';
 import { LspConnection } from '../LspConnection';
+import { lspRequest } from './cancellation';
 import { toMonacoLanguageSelector } from './common';
 
 export class LspLinkedEditingRangeFeature extends Disposable {
@@ -40,10 +41,10 @@ class LspLinkedEditingRangeProvider implements monaco.languages.LinkedEditingRan
     ): Promise<monaco.languages.LinkedEditingRanges | null> {
         const translated = this._client.bridge.translate(model, position);
 
-        const result = await this._client.server.textDocumentLinkedEditingRange({
+        const result = await lspRequest(token, () => this._client.server.textDocumentLinkedEditingRange({
             textDocument: translated.textDocument,
             position: translated.position,
-        });
+        }));
 
         if (!result) {
             return null;
@@ -51,7 +52,7 @@ class LspLinkedEditingRangeProvider implements monaco.languages.LinkedEditingRan
 
         return {
             ranges: result.ranges.map(range =>
-                this._client.bridge.translateBackRange(translated.textDocument, range).range
+                this._client.bridge.toMonacoRange(range)
             ),
             wordPattern: result.wordPattern ? new RegExp(result.wordPattern) : undefined,
         };

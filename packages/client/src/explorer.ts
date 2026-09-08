@@ -71,6 +71,13 @@ export function removeFile(uri: string): void {
     renderFiles();
 }
 
+/** Drop every listed file — used when switching language. */
+export function clearFiles(): void {
+    files.clear();
+    activeUri = "";
+    renderFiles();
+}
+
 export function updateDiagnostics(uri: string, fileName: string, markers: Monaco.editor.IMarkerData[]): void {
     // Remove old diagnostics for this URI
     const filtered = diagnostics.filter((d) => d.uri !== uri);

@@ -41,8 +41,19 @@ export function createInterceptor(workspace: Workspace): MessageInterceptor {
     const { dir, uri, virtualToReal, realToVirtual, rewriteUris, syncFile, removeFile, reclaimFile, getFileContent } = workspace;
 
     function processClientMessage(msg: LspMessage): LspMessage {
-        if (!("method" in msg)) return msg; // response message — pass through
-        
+        // Client→server *responses* (the reply to workspace/configuration or
+        // workspace/workspaceFolders, for instance) carry file:// URIs too, so
+        // they need the same virtual→real rewrite as requests.
+        if (msg.method === undefined) {
+            if (msg.result !== undefined) {
+                msg.result = rewriteUris(msg.result, virtualToReal);
+            }
+            if (msg.error?.data !== undefined) {
+                msg.error.data = rewriteUris(msg.error.data, virtualToReal);
+            }
+            return msg;
+        }
+
         // initialize: rewrite rootUri / rootPath / workspaceFolders to real temp dir
         if (msg.method === "initialize" && msg.params) {
             const params = msg.params as InitializeParams;

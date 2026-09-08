@@ -34,6 +34,7 @@ export class JsonRpcTransportBridge implements TransportBridge {
     private wsReader?: WebSocketMessageReader;
     private wsWriter?: WebSocketMessageWriter;
     private serverConnection?: IConnection;
+    private disposed = false;
 
     constructor(private opts: JsonRpcTransportOptions) { }
 
@@ -46,6 +47,7 @@ export class JsonRpcTransportBridge implements TransportBridge {
             spawnOptions,
             processClientMessage,
             processServerMessage,
+            onServerExit,
         } = this.opts;
 
         // WebSocket side — JSON-RPC message reader/writer over WS frames
@@ -65,6 +67,7 @@ export class JsonRpcTransportBridge implements TransportBridge {
 
         // Forward: WS → process (client → server) with interception
         this.wsReader.listen((message) => {
+            if (this.disposed) return;
             const msg = message as LspMessage;
             const transformed = processClientMessage(msg);
             serverConn.writer.write(transformed).catch((err) => {
@@ -74,6 +77,7 @@ export class JsonRpcTransportBridge implements TransportBridge {
 
         // Forward: process → WS (server → client) with interception
         serverConn.reader.listen((message) => {
+            if (this.disposed) return;
             const msg = message as LspMessage;
 
             // Auto-respond to server→client requests the client can't handle
@@ -93,14 +97,23 @@ export class JsonRpcTransportBridge implements TransportBridge {
         serverConn.reader.onError((err) => {
             console.error(`[JsonRpc:${serverName}] Server reader error:`, err);
         });
+
+        // stdout closing means the process is gone — either it crashed or the
+        // binary was never there. Without this the socket stays open and every
+        // client request hangs forever against a dead server.
         serverConn.reader.onClose(() => {
+            if (this.disposed) return;
             console.log(`[JsonRpc:${serverName}] Server reader closed`);
+            onServerExit?.(`${serverName} server exited`);
         });
     }
 
     dispose(): void {
+        if (this.disposed) return;
+        this.disposed = true;
         this.wsReader?.dispose();
         this.wsWriter?.dispose();
+        // Kills the child process (createServerProcess wires dispose → kill).
         this.serverConnection?.dispose();
     }
 }

@@ -9,6 +9,10 @@ export default defineConfig({
                 target: "ws://localhost:9601",
                 ws: true,
             },
+            // …and the HTTP API, so /api/languages works in dev too
+            "/api": {
+                target: "http://localhost:9601",
+            },
         },
     },
     build: {

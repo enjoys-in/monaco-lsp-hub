@@ -2,6 +2,7 @@ import * as monaco from 'monaco-editor';
 import { capabilities, FoldingRangeRegistrationOptions, FoldingRangeKind } from '../types';
 import { Disposable } from '../utils';
 import { LspConnection } from '../LspConnection';
+import { lspRequest } from './cancellation';
 import { toMonacoLanguageSelector } from './common';
 import { toMonacoFoldingRangeKind } from './common';
 
@@ -46,9 +47,9 @@ class LspFoldingRangeProvider implements monaco.languages.FoldingRangeProvider {
     ): Promise<monaco.languages.FoldingRange[] | null> {
         const translated = this._client.bridge.translate(model, new monaco.Position(1, 1));
 
-        const result = await this._client.server.textDocumentFoldingRange({
+        const result = await lspRequest(token, () => this._client.server.textDocumentFoldingRange({
             textDocument: translated.textDocument,
-        });
+        }));
 
         if (!result) {
             return null;

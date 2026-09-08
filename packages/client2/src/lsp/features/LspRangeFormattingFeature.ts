@@ -2,6 +2,7 @@ import * as monaco from 'monaco-editor';
 import { capabilities, DocumentRangeFormattingRegistrationOptions } from '../types';
 import { Disposable } from '../utils';
 import { LspConnection } from '../LspConnection';
+import { lspRequest } from './cancellation';
 import { toMonacoLanguageSelector } from './common';
 
 export class LspRangeFormattingFeature extends Disposable {
@@ -41,21 +42,21 @@ class LspDocumentRangeFormattingProvider implements monaco.languages.DocumentRan
     ): Promise<monaco.languages.TextEdit[] | null> {
         const translated = this._client.bridge.translate(model, range.getStartPosition());
 
-        const result = await this._client.server.textDocumentRangeFormatting({
+        const result = await lspRequest(token, () => this._client.server.textDocumentRangeFormatting({
             textDocument: translated.textDocument,
             range: this._client.bridge.translateRange(model, range),
             options: {
                 tabSize: options.tabSize,
                 insertSpaces: options.insertSpaces,
             },
-        });
+        }));
 
         if (!result) {
             return null;
         }
 
         return result.map(edit => ({
-            range: this._client.bridge.translateBackRange(translated.textDocument, edit.range).range,
+            range: this._client.bridge.toMonacoRange(edit.range),
             text: edit.newText,
         }));
     }

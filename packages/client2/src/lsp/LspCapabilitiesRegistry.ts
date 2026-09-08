@@ -20,22 +20,41 @@ export class LspCapabilitiesRegistry extends Disposable implements ILspCapabilit
 
         this._register(this._connection.registerRequestHandler(api.client.clientRegisterCapability, async (params) => {
             for (const registration of params.registrations) {
-                const capability = getCapabilityByMethod(registration.method);
-                const r = new CapabilityRegistration(registration.id, capability, registration.registerOptions, false);
-                this._registerCapabilityOptions(r);
+                // Servers dynamically register methods this client has no
+                // feature for (workspace/didChangeWatchedFiles and friends).
+                // Throwing here rejected the whole batch and silently dropped
+                // every *supported* registration that came after it.
+                const capability = findCapabilityByMethod(registration.method);
+                if (!capability) {
+                    console.debug(`[LSP] Ignoring dynamic registration for unsupported method ${registration.method}`);
+                    continue;
+                }
+                try {
+                    const r = new CapabilityRegistration(registration.id, capability, registration.registerOptions, false);
+                    this._registerCapabilityOptions(r);
+                } catch (err) {
+                    console.warn(`[LSP] Failed to register ${registration.method} (${registration.id}):`, err);
+                }
             }
             return { ok: null };
         }));
 
         this._register(this._connection.registerRequestHandler(api.client.clientUnregisterCapability, async (params) => {
             for (const unregistration of params.unregisterations) {
-                const capability = getCapabilityByMethod(unregistration.method);
+                const capability = findCapabilityByMethod(unregistration.method);
+                if (!capability) {
+                    continue;
+                }
                 const info = this._registrations.get(capability);
                 const handlerInfo = info?.registrations.get(unregistration.id);
                 if (!handlerInfo) {
-                    throw new Error(`No registration for method ${unregistration.method} with id ${unregistration.id}`);
+                    // Nothing to tear down — unregistering something we never
+                    // registered is not worth failing the request over.
+                    console.debug(`[LSP] No registration for ${unregistration.method} with id ${unregistration.id}`);
+                    continue;
                 }
-                handlerInfo?.handlerDisposables.forEach(d => d.dispose());
+                handlerInfo.handlerDisposables.forEach(d => d.dispose());
+                handlerInfo.handlerDisposables.clear();
                 info?.registrations.delete(unregistration.id);
             }
             return { ok: null };
@@ -62,7 +81,8 @@ export class LspCapabilitiesRegistry extends Disposable implements ILspCapabilit
 
     setServerCapabilities(serverCapabilities: ServerCapabilities) {
         if (this._serverCapabilities) {
-            throw new Error('Server capabilities already set');
+            console.warn('[LSP] Server capabilities already set — ignoring second initialize result');
+            return;
         }
         this._serverCapabilities = serverCapabilities;
         for (const cap of Object.values(capabilities)) {
@@ -79,6 +99,11 @@ export class LspCapabilitiesRegistry extends Disposable implements ILspCapabilit
             deepAssign(result, c.cap);
         }
         return result;
+    }
+
+    /** True once the server has answered `initialize`. */
+    get hasServerCapabilities(): boolean {
+        return this._serverCapabilities !== undefined;
     }
 
     addStaticClientCapabilities(capability: ClientCapabilities): IDisposable {
@@ -142,12 +167,8 @@ class CapabilityRegistration<T> {
 }
 
 const capabilitiesByMethod = new Map([...Object.values(capabilities)].map(c => [c.method, c]));
-function getCapabilityByMethod(method: string): Capability<any> {
-    const c = capabilitiesByMethod.get(method);
-    if (!c) {
-        throw new Error(`No capability found for method ${method}`);
-    }
-    return c;
+function findCapabilityByMethod(method: string): Capability<any> | undefined {
+    return capabilitiesByMethod.get(method);
 }
 
 class CapabilityInfo<T> {
@@ -161,21 +182,26 @@ class DynamicFromStaticOptions {
     public static create(): DynamicFromStaticOptions {
         const o = new DynamicFromStaticOptions();
         o.set(capabilities.textDocumentDidChange, s => {
+            // Document sync drives didOpen/didChange/didClose, so it must never
+            // resolve to "not registered": a server that omits textDocumentSync
+            // would otherwise never receive a single document and every feature
+            // would silently answer nothing. Full sync is the safe default.
             if (s.textDocumentSync === undefined) {
-                return undefined;
+                return {
+                    syncKind: TextDocumentSyncKind.Full,
+                    documentSelector: null,
+                } satisfies TextDocumentChangeRegistrationOptions;
             }
             if (typeof s.textDocumentSync === 'object') {
                 return {
-                    syncKind: s.textDocumentSync.change ?? TextDocumentSyncKind.None,
-                    documentSelector: null,
-                } satisfies TextDocumentChangeRegistrationOptions;
-            } else {
-                return {
-                    syncKind: s.textDocumentSync,
+                    syncKind: s.textDocumentSync.change ?? TextDocumentSyncKind.Full,
                     documentSelector: null,
                 } satisfies TextDocumentChangeRegistrationOptions;
             }
-            return null!;
+            return {
+                syncKind: s.textDocumentSync,
+                documentSelector: null,
+            } satisfies TextDocumentChangeRegistrationOptions;
         });
 
         o.set(capabilities.textDocumentCompletion, s => s.completionProvider);
@@ -228,15 +254,17 @@ class DynamicFromStaticOptions {
     }
 }
 
+/**
+ * Merge `source` into `target`, copying rather than aliasing.
+ *
+ * Assigning the source object by reference meant a later merge over the same
+ * key path wrote *into* a feature's registered capability object, so the
+ * declared capabilities drifted as more features were added.
+ */
 function deepAssign(target: any, source: any) {
     for (const key of Object.keys(source)) {
         const srcValue = source[key];
         if (srcValue === undefined) {
-            continue;
-        }
-        const tgtValue = target[key];
-        if (tgtValue === undefined) {
-            target[key] = srcValue;
             continue;
         }
 
@@ -244,11 +272,15 @@ function deepAssign(target: any, source: any) {
             target[key] = srcValue;
             continue;
         }
-        if (typeof tgtValue !== 'object' || tgtValue === null) {
-            target[key] = srcValue;
+        if (Array.isArray(srcValue)) {
+            target[key] = srcValue.slice();
             continue;
         }
 
-        deepAssign(tgtValue, srcValue);
+        const tgtValue = target[key];
+        if (typeof tgtValue !== 'object' || tgtValue === null || Array.isArray(tgtValue)) {
+            target[key] = {};
+        }
+        deepAssign(target[key], srcValue);
     }
 }
