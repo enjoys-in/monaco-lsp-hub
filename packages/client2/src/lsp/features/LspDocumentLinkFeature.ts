@@ -3,7 +3,6 @@ import { capabilities, DocumentLinkRegistrationOptions } from '../types';
 import { Disposable } from '../utils';
 import { LspConnection } from '../LspConnection';
 import { lspRequest } from './cancellation';
-import { toMonacoLanguageSelector } from './common';
 
 export class LspDocumentLinkFeature extends Disposable {
     constructor(
@@ -22,7 +21,7 @@ export class LspDocumentLinkFeature extends Disposable {
 
         this._register(this._connection.capabilities.registerCapabilityHandler(capabilities.textDocumentDocumentLink, true, capability => {
             return monaco.languages.registerLinkProvider(
-                toMonacoLanguageSelector(capability.documentSelector),
+                this._connection.selectorFor(capability.documentSelector),
                 new LspDocumentLinkProvider(this._connection, capability),
             );
         }));

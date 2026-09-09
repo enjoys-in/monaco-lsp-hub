@@ -85,7 +85,7 @@ export class LspCapabilitiesRegistry extends Disposable implements ILspCapabilit
             return;
         }
         this._serverCapabilities = serverCapabilities;
-        for (const cap of Object.values(capabilities)) {
+        for (const cap of orderSyncFirst(Object.values(capabilities))) {
             const options = this._dynamicFromStatic.getOptions(cap, serverCapabilities);
             if (options) {
                 this._registerCapabilityOptions(new CapabilityRegistration(cap.method, cap, options, true));
@@ -164,6 +164,33 @@ class CapabilityRegistration<T> {
         public readonly options: T,
         public readonly isFromStatic: boolean
     ) { }
+}
+
+/**
+ * Text-document synchronization methods, which must be registered first.
+ */
+const SYNC_METHODS = new Set([
+    'textDocument/didOpen',
+    'textDocument/didChange',
+    'textDocument/didClose',
+]);
+
+/**
+ * Registering a feature capability installs a Monaco provider, and Monaco
+ * starts issuing requests against it immediately — a code action and a code
+ * lens are requested for the active model on the spot.
+ *
+ * `Object.values(capabilities)` happens to declare `textDocument/codeAction`
+ * fifteen entries ahead of `textDocument/didChange`, so those requests went out
+ * *before* the synchronizer had sent a single `didOpen`. Asking a server about a
+ * document it has never been given is a protocol violation, and the only answer
+ * it can give is an empty one. Sorting synchronization to the front makes the
+ * document exist before anything is asked about it.
+ */
+function orderSyncFirst<T extends { method: string }>(caps: T[]): T[] {
+    const sync = caps.filter(c => SYNC_METHODS.has(c.method));
+    const rest = caps.filter(c => !SYNC_METHODS.has(c.method));
+    return [...sync, ...rest];
 }
 
 const capabilitiesByMethod = new Map([...Object.values(capabilities)].map(c => [c.method, c]));

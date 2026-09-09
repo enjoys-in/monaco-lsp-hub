@@ -28,7 +28,25 @@ import type { TransportType } from "./transport/index.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = path.resolve(__dirname, "..");
 
-const MAX_SESSIONS = parseInt(process.env.MAX_SESSIONS ?? "32", 10);
+/**
+ * Read a positive integer from the environment.
+ *
+ * `parseInt` on a garbage value yields NaN, and every comparison against NaN is
+ * false — so a typo in MAX_SESSIONS silently removed the session cap that keeps
+ * the box from OOMing, and a typo in PORT made `listen` pick a random one.
+ */
+function envInt(name: string, fallback: number): number {
+    const raw = process.env[name];
+    if (raw === undefined || raw.trim() === "") return fallback;
+    const parsed = Number.parseInt(raw, 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+        console.warn(`[Config] Ignoring invalid ${name}="${raw}", using ${fallback}`);
+        return fallback;
+    }
+    return parsed;
+}
+
+const MAX_SESSIONS = envInt("MAX_SESSIONS", 32);
 
 // ── Express App ──────────────────────────────────────────────────────────────
 
@@ -122,7 +140,7 @@ httpServer.on("upgrade", (request: IncomingMessage, socket: Socket, head: Buffer
 
 // ── Start ────────────────────────────────────────────────────────────────────
 
-const PORT = parseInt(process.env.PORT ?? "9601", 10);
+const PORT = envInt("PORT", 9601);
 
 httpServer.listen(PORT, "0.0.0.0", () => {
     console.log(`\n  Monaco LSP Hub running at http://localhost:${PORT}\n`);

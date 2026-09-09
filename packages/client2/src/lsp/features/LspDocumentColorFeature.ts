@@ -3,7 +3,6 @@ import { capabilities, DocumentColorRegistrationOptions, Color } from '../types'
 import { Disposable } from '../utils';
 import { LspConnection } from '../LspConnection';
 import { lspRequest } from './cancellation';
-import { toMonacoLanguageSelector } from './common';
 
 export class LspDocumentColorFeature extends Disposable {
     constructor(
@@ -21,7 +20,7 @@ export class LspDocumentColorFeature extends Disposable {
 
         this._register(this._connection.capabilities.registerCapabilityHandler(capabilities.textDocumentDocumentColor, true, capability => {
             return monaco.languages.registerColorProvider(
-                toMonacoLanguageSelector(capability.documentSelector),
+                this._connection.selectorFor(capability.documentSelector),
                 new LspDocumentColorProvider(this._connection, capability),
             );
         }));

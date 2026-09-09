@@ -3,7 +3,6 @@ import { capabilities, SemanticTokensRegistrationOptions, TokenFormat } from '..
 import { Disposable } from '../utils';
 import { LspConnection } from '../LspConnection';
 import { lspRequest } from './cancellation';
-import { toMonacoLanguageSelector } from './common';
 
 export class LspSemanticTokensFeature extends Disposable {
     constructor(
@@ -40,7 +39,7 @@ export class LspSemanticTokensFeature extends Disposable {
 
         this._register(this._connection.capabilities.registerCapabilityHandler(capabilities.textDocumentSemanticTokensFull, true, capability => {
             return monaco.languages.registerDocumentSemanticTokensProvider(
-                toMonacoLanguageSelector(capability.documentSelector),
+                this._connection.selectorFor(capability.documentSelector),
                 new LspSemanticTokensProvider(this._connection, capability),
             );
         }));

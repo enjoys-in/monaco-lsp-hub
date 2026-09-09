@@ -49,9 +49,13 @@ function setStatus(text: string, state: "info" | "connected" | "error" = "info")
 
 // ── Create or Update Editor ──────────────────────────────────────────────────
 
+/** URI of the one document the current connection serves */
+let currentDocumentUri = "";
+
 function initEditor(langConfig: LanguageConfig): void {
     const container = document.getElementById("editor-container")!;
     const uri = monaco.Uri.parse(`file:///workspace/${workspaceFileName(langConfig)}`);
+    currentDocumentUri = uri.toString();
 
     if (editor) {
         const oldModel = editor.getModel();
@@ -118,6 +122,12 @@ async function connectLanguageClient(langConfig: LanguageConfig, generation: num
     currentTransport = transport;
 
     const client = new MonacoLspClient(transport, {
+        // One server, one file: the session's workspace holds this document and
+        // nothing else, so the client registers its providers for this
+        // document's language only. Left unscoped, a server that advertises a
+        // capability without a document selector — the normal case — registers
+        // as `'*'` and starts answering for every other model on the page.
+        scope: { uri: currentDocumentUri, languageId: langConfig.languageId },
         onShowMessage(params) {
             showToast({
                 message: params.message,

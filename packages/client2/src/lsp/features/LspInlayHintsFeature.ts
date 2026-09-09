@@ -2,7 +2,7 @@ import * as monaco from 'monaco-editor';
 import { capabilities, InlayHintRegistrationOptions, InlayHint, MarkupContent, api } from '../types';
 import { Disposable } from '../utils';
 import { LspConnection } from '../LspConnection';
-import { toMarkdown, toMonacoLanguageSelector } from './common';
+import { toMarkdown } from './common';
 import { lspRequest } from './cancellation';
 import { assertTargetTextModel } from '../ITextModelBridge';
 import { toMonacoCommand, toMonacoInlayHintKind } from './common';
@@ -44,7 +44,7 @@ export class LspInlayHintsFeature extends Disposable {
             this._providers.add(provider);
 
             const disposable = monaco.languages.registerInlayHintsProvider(
-                toMonacoLanguageSelector(capability.documentSelector),
+                this._connection.selectorFor(capability.documentSelector),
                 provider,
             );
 

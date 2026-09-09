@@ -3,7 +3,6 @@ import { capabilities, ImplementationRegistrationOptions } from '../types';
 import { Disposable } from '../utils';
 import { LspConnection } from '../LspConnection';
 import { lspRequest } from './cancellation';
-import { toMonacoLanguageSelector } from './common';
 import { toMonacoLocation } from "./common";
 
 export class LspImplementationFeature extends Disposable {
@@ -23,7 +22,7 @@ export class LspImplementationFeature extends Disposable {
 
         this._register(this._connection.capabilities.registerCapabilityHandler(capabilities.textDocumentImplementation, true, capability => {
             return monaco.languages.registerImplementationProvider(
-                toMonacoLanguageSelector(capability.documentSelector),
+                this._connection.selectorFor(capability.documentSelector),
                 new LspImplementationProvider(this._connection, capability),
             );
         }));

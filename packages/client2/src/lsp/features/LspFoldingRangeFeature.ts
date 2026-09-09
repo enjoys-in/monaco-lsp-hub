@@ -3,7 +3,6 @@ import { capabilities, FoldingRangeRegistrationOptions, FoldingRangeKind } from 
 import { Disposable } from '../utils';
 import { LspConnection } from '../LspConnection';
 import { lspRequest } from './cancellation';
-import { toMonacoLanguageSelector } from './common';
 import { toMonacoFoldingRangeKind } from './common';
 
 export class LspFoldingRangeFeature extends Disposable {
@@ -27,7 +26,7 @@ export class LspFoldingRangeFeature extends Disposable {
 
         this._register(this._connection.capabilities.registerCapabilityHandler(capabilities.textDocumentFoldingRange, true, capability => {
             return monaco.languages.registerFoldingRangeProvider(
-                toMonacoLanguageSelector(capability.documentSelector),
+                this._connection.selectorFor(capability.documentSelector),
                 new LspFoldingRangeProvider(this._connection, capability),
             );
         }));

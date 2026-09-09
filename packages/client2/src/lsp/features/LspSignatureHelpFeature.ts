@@ -3,7 +3,7 @@ import { capabilities, SignatureHelpRegistrationOptions, MarkupContent, MarkupKi
 import { Disposable } from '../utils';
 import { LspConnection } from '../LspConnection';
 import { lspRequest } from './cancellation';
-import { toMarkdown, toMonacoLanguageSelector } from './common';
+import { toMarkdown } from './common';
 import { toLspSignatureHelpTriggerKind } from './common';
 
 export class LspSignatureHelpFeature extends Disposable {
@@ -30,7 +30,7 @@ export class LspSignatureHelpFeature extends Disposable {
 
         this._register(this._connection.capabilities.registerCapabilityHandler(capabilities.textDocumentSignatureHelp, true, capability => {
             return monaco.languages.registerSignatureHelpProvider(
-                toMonacoLanguageSelector(capability.documentSelector),
+                this._connection.selectorFor(capability.documentSelector),
                 new LspSignatureHelpProvider(this._connection, capability),
             );
         }));

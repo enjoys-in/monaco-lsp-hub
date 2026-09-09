@@ -3,17 +3,9 @@
 import type { WebSocket } from "ws";
 import type { ChildProcess, SpawnOptions } from "child_process";
 import type { LspMessage } from "../lsp/types.js";
+import type { ServerRequestArbiter } from "../lsp/server-requests.js";
 
 export type TransportType = "raw" | "jsonrpc";
-
-/** Server→client requests the client doesn't handle — auto-respond with null result */
-export const AUTO_RESPOND_METHODS = new Set([
-    "workspace/diagnostic/refresh",
-    "workspace/semanticTokens/refresh",
-    "workspace/inlineValue/refresh",
-    "workspace/codeLens/refresh",
-    "workspace/foldingRange/refresh",
-]);
 
 export interface TransportBridge {
     start(): void;
@@ -24,6 +16,13 @@ export interface TransportBridge {
 export interface MessageHandlers {
     processClientMessage: (msg: LspMessage) => LspMessage;
     processServerMessage: (msg: LspMessage) => LspMessage;
+    /**
+     * Builds the arbiter that decides which server→client requests the hub
+     * answers itself. The transport owns the only channel to the server's
+     * stdin, so it hands that channel over rather than the arbiter reaching
+     * for one.
+     */
+    createArbiter?: (sendToServer: (msg: LspMessage) => void) => ServerRequestArbiter;
 }
 
 /** Options for the raw transport (caller spawns the process) */

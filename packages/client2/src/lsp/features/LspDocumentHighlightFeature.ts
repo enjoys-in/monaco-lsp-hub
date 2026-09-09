@@ -3,7 +3,6 @@ import { capabilities, DocumentHighlightRegistrationOptions } from '../types';
 import { Disposable } from '../utils';
 import { LspConnection } from '../LspConnection';
 import { lspRequest } from './cancellation';
-import { toMonacoLanguageSelector } from './common';
 import { toMonacoDocumentHighlightKind } from './common';
 
 export class LspDocumentHighlightFeature extends Disposable {
@@ -22,7 +21,7 @@ export class LspDocumentHighlightFeature extends Disposable {
 
         this._register(this._connection.capabilities.registerCapabilityHandler(capabilities.textDocumentDocumentHighlight, true, capability => {
             return monaco.languages.registerDocumentHighlightProvider(
-                toMonacoLanguageSelector(capability.documentSelector),
+                this._connection.selectorFor(capability.documentSelector),
                 new LspDocumentHighlightProvider(this._connection, capability),
             );
         }));

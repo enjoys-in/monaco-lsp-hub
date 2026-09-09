@@ -15,21 +15,32 @@ import {
     type TransportType,
     type TransportBridge,
 } from "./transport/index.js";
-import { createWorkspace, type Workspace } from "./lsp/workspace.js";
+import { createWorkspace } from "./lsp/workspace.js";
 import { createInterceptor } from "./lsp/interceptor.js";
 import { scaffoldWorkspace } from "./lsp/scaffold.js";
+import { createServerRequestArbiter } from "./lsp/server-requests.js";
 import type { LspMessage } from "./lsp/types.js";
 
 /** Map language path IDs to file extensions for pre-scaffolding */
 const LANG_TO_EXT: Record<string, string> = {
     rust: "rs", go: "go", typescript: "ts", javascript: "js", python: "py", java: "java",
-    typescriptreact: "ts", javascriptreact: "js",
+    typescriptreact: "tsx", javascriptreact: "jsx",
 };
 
 /** Grace period between SIGTERM and SIGKILL for a language server */
 const KILL_GRACE_MS = 2000;
 /** Delay before removing the workspace, so a dying server stops writing to it */
 const WORKSPACE_RM_DELAY_MS = 250;
+
+// ── WebSocket liveness ───────────────────────────────────────────────────────
+// An LSP session is idle whenever the user is reading rather than typing, and
+// the proxies in front of a cloud deployment (Render, nginx, Cloudflare) close
+// idle WebSockets at around 60s. Without a ping the socket dies mid-session and
+// the client can only report "disconnected"; the HTTP keep-alive ping in
+// lib/keep-me-alive.ts keeps the *process* warm and does nothing for sockets.
+const PING_INTERVAL_MS = 25_000;
+/** Missed pongs tolerated before the socket is considered dead */
+const MAX_MISSED_PONGS = 2;
 
 /** Teardown hooks for every live session, so shutdown can reclaim them all */
 const liveSessions = new Set<(reason: string, code?: number) => void>();
@@ -63,11 +74,14 @@ export function launchLanguageServer(
     const workspace = createWorkspace();
     console.log(`[LSP] Temp workspace: ${workspace.dir}`);
 
-    // Pre-scaffold project files before spawning (rust-analyzer needs Cargo.toml at init)
+    // Pre-scaffold before spawning: rust-analyzer reads Cargo.toml at init and
+    // will not start without one. The filename is a guess at this point — the
+    // interceptor corrects it from the first document the client actually
+    // opens, which over SFTP is rarely called main.<ext>.
     if (langId) {
         const ext = LANG_TO_EXT[langId];
         if (ext) {
-            const result = scaffoldWorkspace(workspace.dir, `file:///workspace/main.${ext}`);
+            const result = scaffoldWorkspace(workspace.dir, `main.${ext}`);
             if (result) {
                 console.log(`[LSP] Pre-scaffolded ${result.language}: ${result.created.join(", ")}`);
             }
@@ -78,11 +92,18 @@ export function launchLanguageServer(
     const handlers = {
         processClientMessage: (msg: LspMessage) => interceptor.processClientMessage(msg),
         processServerMessage: (msg: LspMessage) => interceptor.processServerMessage(msg),
+        createArbiter: (sendToServer: (msg: LspMessage) => void) =>
+            createServerRequestArbiter({
+                serverName: config.name,
+                workspaceUri: workspace.uri,
+                sendToServer,
+            }),
     };
 
     let transport: TransportBridge;
     let serverProcess: ChildProcess | undefined;
     let closed = false;
+    let pingTimer: ReturnType<typeof setInterval> | undefined;
 
     // ── Teardown ─────────────────────────────────────────────────────────────
     // One idempotent path for every way a session can end: client disconnect,
@@ -91,6 +112,19 @@ export function launchLanguageServer(
         if (closed) return;
         closed = true;
         liveSessions.delete(closeSession);
+
+        if (pingTimer) {
+            clearInterval(pingTimer);
+            pingTimer = undefined;
+        }
+
+        // Closed *before* the transport is disposed. `ws.close()` flushes the
+        // frames already queued, and going the other way round let the writer's
+        // own teardown close the socket first with no code at all, so the
+        // client never learned whether the server had crashed.
+        if (ws.readyState === ws.OPEN || ws.readyState === ws.CONNECTING) {
+            ws.close(code, reason);
+        }
 
         try {
             transport.dispose();
@@ -104,10 +138,6 @@ export function launchLanguageServer(
             }, KILL_GRACE_MS);
             serverProcess.once("exit", () => clearTimeout(sigkill));
             try { serverProcess.kill(); } catch { /* already gone */ }
-        }
-
-        if (ws.readyState === ws.OPEN || ws.readyState === ws.CONNECTING) {
-            ws.close(code, reason);
         }
 
         setTimeout(() => workspace.cleanup(), WORKSPACE_RM_DELAY_MS);
@@ -174,6 +204,30 @@ export function launchLanguageServer(
         const line = text.length > 500 ? text.substring(0, 500) + "... [truncated]" : text;
         console.error(`[LSP:${config.name}:stderr]`, line);
     });
+
+    // ── Keep the socket alive through idle periods ───────────────────────────
+
+    let missedPongs = 0;
+    ws.on("pong", () => { missedPongs = 0; });
+
+    pingTimer = setInterval(() => {
+        if (ws.readyState !== ws.OPEN) return;
+        if (missedPongs >= MAX_MISSED_PONGS) {
+            console.warn(`[LSP] ${config.name} client unresponsive, terminating session`);
+            // terminate(), not close(): a half-open socket never completes a
+            // closing handshake, so close() would leave the session pinned.
+            ws.terminate();
+            closeSession("client unresponsive", 1001);
+            return;
+        }
+        missedPongs++;
+        try {
+            ws.ping();
+        } catch (err) {
+            console.error(`[LSP] ${config.name} ping failed:`, err);
+        }
+    }, PING_INTERVAL_MS);
+    pingTimer.unref?.();
 
     // ── Session lifecycle ────────────────────────────────────────────────────
 

@@ -96,6 +96,12 @@ export class LspDiagnosticsFeature extends Disposable {
 		if (this._pullDiagnosticProviders.has(model)) {
 			return;
 		}
+		// Pull diagnostics used to be requested for every model on the page,
+		// including ones this server was never started for and `inmemory://`
+		// scratch models it could not resolve at all.
+		if (!this._connection.isInScope(model)) {
+			return;
+		}
 		if (!matchesDocumentSelector(model, capability.documentSelector)) {
 			return;
 		}
@@ -125,15 +131,20 @@ export class LspDiagnosticsFeature extends Disposable {
 		const uri = params.uri;
 		const diagnostics = params.diagnostics ?? [];
 
+		const model = this._connection.bridge.findTextModel({ uri });
+		if (!model || model.isDisposed()) {
+			// Nothing to mark, and nothing to keep: the originals exist only to
+			// answer code-action requests against an open document, so storing
+			// them for files that are not open grew the map for the lifetime of
+			// the connection and served no request.
+			this._connection.diagnostics.delete(uri);
+			return;
+		}
+
 		// Keep the originals: `data` and the structured `code` are what servers
 		// need back on a code-action request, and a Monaco marker has nowhere
 		// to put them.
 		this._connection.diagnostics.set(uri, diagnostics);
-
-		const model = this._connection.bridge.findTextModel({ uri });
-		if (!model || model.isDisposed()) {
-			return;
-		}
 
 		this._setMarkers(model, diagnostics.map(diagnostic => toDiagnosticMarker(diagnostic)));
 	}

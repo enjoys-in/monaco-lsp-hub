@@ -12,8 +12,7 @@ import {
     toMonacoCompletionItemTag,
     toLspCompletionTriggerKind,
     toMonacoInsertTextRules,
-    toMonacoCommand,
-    toMonacoLanguageSelector,
+    toMonacoCommand
 } from './common';
 
 export class LspCompletionFeature extends Disposable {
@@ -51,7 +50,7 @@ export class LspCompletionFeature extends Disposable {
 
         this._register(this._connection.capabilities.registerCapabilityHandler(capabilities.textDocumentCompletion, true, capability => {
             return monaco.languages.registerCompletionItemProvider(
-                toMonacoLanguageSelector(capability.documentSelector),
+                this._connection.selectorFor(capability.documentSelector),
                 new LspCompletionProvider(this._connection, capability),
             );
         }));

@@ -3,7 +3,6 @@ import { capabilities, SelectionRangeRegistrationOptions } from '../types';
 import { Disposable } from '../utils';
 import { LspConnection } from '../LspConnection';
 import { lspRequest } from './cancellation';
-import { toMonacoLanguageSelector } from './common';
 
 export class LspSelectionRangeFeature extends Disposable {
     constructor(
@@ -21,7 +20,7 @@ export class LspSelectionRangeFeature extends Disposable {
 
         this._register(this._connection.capabilities.registerCapabilityHandler(capabilities.textDocumentSelectionRange, true, capability => {
             return monaco.languages.registerSelectionRangeProvider(
-                toMonacoLanguageSelector(capability.documentSelector),
+                this._connection.selectorFor(capability.documentSelector),
                 new LspSelectionRangeProvider(this._connection, capability),
             );
         }));

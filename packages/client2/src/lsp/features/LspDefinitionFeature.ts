@@ -3,7 +3,6 @@ import { capabilities, DefinitionRegistrationOptions } from '../types';
 import { Disposable } from '../utils';
 import { LspConnection } from '../LspConnection';
 import { lspRequest } from './cancellation';
-import { toMonacoLanguageSelector } from './common';
 import { toMonacoLocation } from "./common";
 
 export class LspDefinitionFeature extends Disposable {
@@ -23,7 +22,7 @@ export class LspDefinitionFeature extends Disposable {
 
         this._register(this._connection.capabilities.registerCapabilityHandler(capabilities.textDocumentDefinition, true, capability => {
             return monaco.languages.registerDefinitionProvider(
-                toMonacoLanguageSelector(capability.documentSelector),
+                this._connection.selectorFor(capability.documentSelector),
                 new LspDefinitionProvider(this._connection, capability),
             );
         }));

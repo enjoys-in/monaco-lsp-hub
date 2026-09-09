@@ -86,6 +86,22 @@ RUN HARPER_VER=$(curl -fsSL https://api.github.com/repos/Automattic/harper/relea
     && curl -fsSL "https://github.com/Automattic/harper/releases/download/v${HARPER_VER}/harper-ls-x86_64-unknown-linux-gnu.tar.gz" \
     | tar -xz -C /usr/local/bin harper-ls && chmod +x /usr/local/bin/harper-ls
 
+# ── Bash: shellcheck + shfmt ────────────────────────────────────────────────
+# bash-language-server has no linter or formatter of its own — it shells out to
+# these. Without shellcheck it logs "disabling linting as no executable was
+# found" and publishes empty diagnostics forever; without shfmt it advertises
+# documentFormattingProvider and then fails every format request. Both upstream
+# releases are static binaries, so they copy cleanly into the runtime stage.
+RUN curl -fsSL "https://github.com/koalaman/shellcheck/releases/download/stable/shellcheck-stable.linux.x86_64.tar.xz" \
+    | tar -xJ -C /tmp \
+    && mv /tmp/shellcheck-stable/shellcheck /usr/local/bin/shellcheck \
+    && chmod +x /usr/local/bin/shellcheck \
+    && rm -rf /tmp/shellcheck-stable
+RUN SHFMT_VER=$(curl -fsSL https://api.github.com/repos/mvdan/sh/releases/latest | grep -oP '"tag_name":\s*"v?\K[^"]+') \
+    && curl -fsSL -o /usr/local/bin/shfmt \
+    "https://github.com/mvdan/sh/releases/download/v${SHFMT_VER}/shfmt_v${SHFMT_VER}_linux_amd64" \
+    && chmod +x /usr/local/bin/shfmt
+
 # ── JRE 21 (for JVM-based language servers) ──────────────────────────────────
 RUN curl -fsSL "https://api.adoptium.net/v3/binary/latest/21/ga/linux/x64/jre/hotspot/normal/eclipse" \
     -o /tmp/jre.tar.gz \
@@ -160,6 +176,7 @@ FROM oven/bun:1-slim AS production
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     bash \
+    bsdextrautils \
     libstdc++6 \
     libgcc-s1 \
     zlib1g \
@@ -168,6 +185,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ruby \
     php-cli php-xml php-mbstring \
     && rm -rf /var/lib/apt/lists/*
+# bsdextrautils provides `col`. bash-language-server documents every builtin
+# and command by running `help <word> | col -bx` (and `man -P cat <word> |
+# col -bx`), so without it the pipeline fails and hover returns null for
+# *everything* — `echo`, `set`, `cd`, the lot. Verified absent in
+# oven/bun:1-slim. Man pages are deliberately not installed: the external
+# tools a script would reference aren't in this image either, so they would
+# add tens of MB to serve almost no lookups.
 
 WORKDIR /app
 
@@ -223,6 +247,10 @@ COPY --from=systools /usr/local/bin/helm /usr/local/bin/helm
 
 # Grammar: harper-ls
 COPY --from=systools /usr/local/bin/harper-ls /usr/local/bin/harper-ls
+
+# Bash: shellcheck (linting) + shfmt (formatting) for bash-language-server
+COPY --from=systools /usr/local/bin/shellcheck /usr/local/bin/shellcheck
+COPY --from=systools /usr/local/bin/shfmt /usr/local/bin/shfmt
 
 # Java: Eclipse JDT LS
 COPY --from=systools /opt/jdtls /opt/jdtls

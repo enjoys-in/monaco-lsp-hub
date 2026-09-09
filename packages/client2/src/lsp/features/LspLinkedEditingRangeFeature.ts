@@ -3,7 +3,6 @@ import { capabilities, LinkedEditingRangeRegistrationOptions } from '../types';
 import { Disposable } from '../utils';
 import { LspConnection } from '../LspConnection';
 import { lspRequest } from './cancellation';
-import { toMonacoLanguageSelector } from './common';
 
 export class LspLinkedEditingRangeFeature extends Disposable {
     constructor(
@@ -21,7 +20,7 @@ export class LspLinkedEditingRangeFeature extends Disposable {
 
         this._register(this._connection.capabilities.registerCapabilityHandler(capabilities.textDocumentLinkedEditingRange, true, capability => {
             return monaco.languages.registerLinkedEditingRangeProvider(
-                toMonacoLanguageSelector(capability.documentSelector),
+                this._connection.selectorFor(capability.documentSelector),
                 new LspLinkedEditingRangeProvider(this._connection, capability),
             );
         }));

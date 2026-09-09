@@ -3,7 +3,7 @@ import { capabilities, HoverRegistrationOptions, MarkupContent, MarkedString, Ma
 import { Disposable } from '../utils';
 import { LspConnection } from '../LspConnection';
 import { lspRequest } from './cancellation';
-import { toMarkdown, toMonacoLanguageSelector } from './common';
+import { toMarkdown } from './common';
 
 export class LspHoverFeature extends Disposable {
     constructor(
@@ -22,7 +22,7 @@ export class LspHoverFeature extends Disposable {
 
         this._register(this._connection.capabilities.registerCapabilityHandler(capabilities.textDocumentHover, true, capability => {
             return monaco.languages.registerHoverProvider(
-                toMonacoLanguageSelector(capability.documentSelector),
+                this._connection.selectorFor(capability.documentSelector),
                 new LspHoverProvider(this._connection, capability),
             );
         }));

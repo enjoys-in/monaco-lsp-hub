@@ -3,7 +3,6 @@ import { capabilities, DocumentFormattingRegistrationOptions } from '../types';
 import { Disposable } from '../utils';
 import { LspConnection } from '../LspConnection';
 import { lspRequest } from './cancellation';
-import { toMonacoLanguageSelector } from './common';
 
 export class LspFormattingFeature extends Disposable {
     constructor(
@@ -21,7 +20,7 @@ export class LspFormattingFeature extends Disposable {
 
         this._register(this._connection.capabilities.registerCapabilityHandler(capabilities.textDocumentFormatting, true, capability => {
             return monaco.languages.registerDocumentFormattingEditProvider(
-                toMonacoLanguageSelector(capability.documentSelector),
+                this._connection.selectorFor(capability.documentSelector),
                 new LspDocumentFormattingProvider(this._connection, capability),
             );
         }));

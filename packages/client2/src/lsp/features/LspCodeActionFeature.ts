@@ -9,7 +9,6 @@ import {
     toLspCodeActionTriggerKind,
     toLspDiagnostic,
     toMonacoCommand,
-    toMonacoLanguageSelector,
     toMonacoWorkspaceEdit,
 } from './common';
 
@@ -40,7 +39,7 @@ export class LspCodeActionFeature extends Disposable {
 
         this._register(this._connection.capabilities.registerCapabilityHandler(capabilities.textDocumentCodeAction, true, capability => {
             return monaco.languages.registerCodeActionProvider(
-                toMonacoLanguageSelector(capability.documentSelector),
+                this._connection.selectorFor(capability.documentSelector),
                 new LspCodeActionProvider(this._connection, capability),
             );
         }));

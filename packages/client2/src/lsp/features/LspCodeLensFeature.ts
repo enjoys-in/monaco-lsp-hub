@@ -3,7 +3,6 @@ import { capabilities, CodeLensRegistrationOptions, CodeLens } from '../types';
 import { Disposable } from '../utils';
 import { LspConnection } from '../LspConnection';
 import { lspRequest } from './cancellation';
-import { toMonacoLanguageSelector } from './common';
 import { assertTargetTextModel } from '../ITextModelBridge';
 import { toMonacoCommand } from './common';
 
@@ -23,7 +22,7 @@ export class LspCodeLensFeature extends Disposable {
 
         this._register(this._connection.capabilities.registerCapabilityHandler(capabilities.textDocumentCodeLens, true, capability => {
             return monaco.languages.registerCodeLensProvider(
-                toMonacoLanguageSelector(capability.documentSelector),
+                this._connection.selectorFor(capability.documentSelector),
                 new LspCodeLensProvider(this._connection, capability),
             );
         }));

@@ -3,7 +3,7 @@ import { capabilities, RenameRegistrationOptions } from '../types';
 import { Disposable } from '../utils';
 import { LspConnection } from '../LspConnection';
 import { lspRequest } from './cancellation';
-import { toMonacoLanguageSelector, toMonacoWorkspaceEdit } from './common';
+import { toMonacoWorkspaceEdit } from './common';
 
 export class LspRenameFeature extends Disposable {
     constructor(
@@ -22,7 +22,7 @@ export class LspRenameFeature extends Disposable {
 
         this._register(this._connection.capabilities.registerCapabilityHandler(capabilities.textDocumentRename, true, capability => {
             return monaco.languages.registerRenameProvider(
-                toMonacoLanguageSelector(capability.documentSelector),
+                this._connection.selectorFor(capability.documentSelector),
                 new LspRenameProvider(this._connection, capability),
             );
         }));

@@ -3,7 +3,6 @@ import { capabilities, DocumentSymbolRegistrationOptions, DocumentSymbol, Symbol
 import { Disposable } from '../utils';
 import { LspConnection } from '../LspConnection';
 import { lspRequest } from './cancellation';
-import { toMonacoLanguageSelector } from './common';
 import { lspSymbolKindToMonacoSymbolKind, toMonacoSymbolKind, toMonacoSymbolTag } from './common';
 
 export class LspDocumentSymbolFeature extends Disposable {
@@ -29,7 +28,7 @@ export class LspDocumentSymbolFeature extends Disposable {
 
         this._register(this._connection.capabilities.registerCapabilityHandler(capabilities.textDocumentDocumentSymbol, true, capability => {
             return monaco.languages.registerDocumentSymbolProvider(
-                toMonacoLanguageSelector(capability.documentSelector),
+                this._connection.selectorFor(capability.documentSelector),
                 new LspDocumentSymbolProvider(this._connection, capability),
             );
         }));

@@ -27,11 +27,26 @@ import { LspLinkedEditingRangeFeature } from "./features/LspLinkedEditingRangeFe
 import { LspRangeSemanticTokensFeature } from "./features/LspRangeSemanticTokensFeature";
 import { LspExecuteCommandFeature } from "./features/LspExecuteCommandFeature";
 import { api, type ShowMessageParams, type LogMessageParams, type ShowMessageRequestParams, type MessageActionItem, type ApplyWorkspaceEditParams, type ConfigurationParams, type ProgressParams, type WorkDoneProgressCreateParams, type WorkDoneProgressBegin, type WorkDoneProgressReport, type WorkDoneProgressEnd, type TextEdit, type CreateFile, type RenameFile, type DeleteFile } from "./types";
-import { LspConnection } from "./LspConnection";
+import { LspConnection, resolveScope, type LspDocumentScope, type ResolvedScope } from "./LspConnection";
 import { LspCapabilitiesRegistry } from './LspCapabilitiesRegistry';
 import { LspDiagnosticStore } from './LspDiagnosticStore';
 import { TextDocumentSynchronizer } from "./TextDocumentSynchronizer";
 import { DisposableStore, IDisposable } from "./utils";
+
+/**
+ * Restricts a connection to the single document it was opened for.
+ *
+ * A hub session is one language server holding one file, so a connection that
+ * answers for every model on the page can only produce errors, empty results,
+ * and duplicate completions alongside Monaco's own built-in workers. Passing a
+ * scope is strongly recommended; omitting it keeps the old page-wide behaviour,
+ * narrowed to `file:` models.
+ */
+export type { LspDocumentScope };
+
+export interface LspClientOptions extends LspClientCallbacks {
+    scope?: LspDocumentScope;
+}
 
 export interface LspClientCallbacks {
     onShowMessage?: (params: ShowMessageParams) => void;
@@ -54,7 +69,12 @@ export class MonacoLspClient implements IDisposable {
 
     private readonly _initPromise: Promise<void>;
 
-    constructor(transport: IMessageTransport, callbacks: LspClientCallbacks = {}) {
+    private readonly _scope?: ResolvedScope;
+
+    constructor(transport: IMessageTransport, options: LspClientOptions = {}) {
+        const callbacks: LspClientCallbacks = options;
+        this._scope = options.scope ? resolveScope(options.scope) : undefined;
+
         const c = TypedChannel.fromTransport(transport);
 
         // Client-side handlers for server→client notifications/requests
@@ -115,10 +135,10 @@ export class MonacoLspClient implements IDisposable {
             },
         }));
 
-        this._bridge = this._store.add(new TextDocumentSynchronizer(s.server, this._capabilitiesRegistry));
+        this._bridge = this._store.add(new TextDocumentSynchronizer(s.server, this._capabilitiesRegistry, this._scope));
         this._diagnostics = new LspDiagnosticStore();
 
-        this._connection = new LspConnection(s.server, this._bridge, this._capabilitiesRegistry, c, this._diagnostics);
+        this._connection = new LspConnection(s.server, this._bridge, this._capabilitiesRegistry, c, this._diagnostics, this._scope);
         this._store.add(this.createFeatures());
 
         this._initPromise = this._init().catch((err) => {

@@ -8,7 +8,8 @@ import {
     type IWebSocket,
 } from "vscode-ws-jsonrpc";
 import { createServerProcess, type IConnection } from "vscode-ws-jsonrpc/server";
-import { AUTO_RESPOND_METHODS, type TransportBridge, type JsonRpcTransportOptions } from "./types.js";
+import type { TransportBridge, JsonRpcTransportOptions } from "./types.js";
+import type { ServerRequestArbiter } from "../lsp/server-requests.js";
 import type { LspMessage } from "../lsp/types.js";
 
 /** Adapt a `ws` WebSocket into the IWebSocket interface expected by vscode-ws-jsonrpc */
@@ -26,7 +27,10 @@ function toIWebSocket(ws: WebSocket): IWebSocket {
             ws.on("error", (err) => cb(err.message)),
         onClose: (cb) =>
             ws.on("close", (code, reason) => cb(code, reason?.toString() ?? "")),
-        dispose: () => ws.close(),
+        // Closing the socket is the session's job, not the writer's: doing it
+        // here discarded the close code the launcher had already chosen, so a
+        // crashed server was indistinguishable from a clean shutdown.
+        dispose: () => { },
     };
 }
 
@@ -34,6 +38,7 @@ export class JsonRpcTransportBridge implements TransportBridge {
     private wsReader?: WebSocketMessageReader;
     private wsWriter?: WebSocketMessageWriter;
     private serverConnection?: IConnection;
+    private arbiter?: ServerRequestArbiter;
     private disposed = false;
 
     constructor(private opts: JsonRpcTransportOptions) { }
@@ -47,6 +52,7 @@ export class JsonRpcTransportBridge implements TransportBridge {
             spawnOptions,
             processClientMessage,
             processServerMessage,
+            createArbiter,
             onServerExit,
         } = this.opts;
 
@@ -65,14 +71,20 @@ export class JsonRpcTransportBridge implements TransportBridge {
 
         const serverConn = this.serverConnection;
 
+        const writeToServer = (msg: LspMessage): void => {
+            serverConn.writer.write(msg).catch((err) => {
+                console.error(`[JsonRpc:${serverName}] Write to server failed:`, err);
+            });
+        };
+
+        this.arbiter = createArbiter?.(writeToServer);
+
         // Forward: WS → process (client → server) with interception
         this.wsReader.listen((message) => {
             if (this.disposed) return;
             const msg = message as LspMessage;
-            const transformed = processClientMessage(msg);
-            serverConn.writer.write(transformed).catch((err) => {
-                console.error(`[JsonRpc:${serverName}] Write to server failed:`, err);
-            });
+            if (this.arbiter?.handleClientMessage(msg) === "drop") return;
+            writeToServer(processClientMessage(msg));
         });
 
         // Forward: process → WS (server → client) with interception
@@ -80,12 +92,8 @@ export class JsonRpcTransportBridge implements TransportBridge {
             if (this.disposed) return;
             const msg = message as LspMessage;
 
-            // Auto-respond to server→client requests the client can't handle
-            if (msg.id !== undefined && msg.method && AUTO_RESPOND_METHODS.has(msg.method)) {
-                console.log(`[JsonRpc:${serverName}] Auto-respond: ${msg.method}`);
-                serverConn.writer.write({ jsonrpc: "2.0", id: msg.id, result: null } as LspMessage).catch(() => { });
-                return;
-            }
+            // Requests the hub answers on the client's behalf never reach it
+            if (this.arbiter?.handleServerMessage(msg) === "answered") return;
 
             const transformed = processServerMessage(msg);
 
@@ -111,6 +119,7 @@ export class JsonRpcTransportBridge implements TransportBridge {
     dispose(): void {
         if (this.disposed) return;
         this.disposed = true;
+        this.arbiter?.dispose();
         this.wsReader?.dispose();
         this.wsWriter?.dispose();
         // Kills the child process (createServerProcess wires dispose → kill).

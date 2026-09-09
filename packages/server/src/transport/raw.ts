@@ -7,7 +7,8 @@
 // sequence can straddle a chunk boundary.
 
 import type { WebSocket } from "ws";
-import { AUTO_RESPOND_METHODS, type TransportBridge, type RawTransportOptions } from "./types.js";
+import type { TransportBridge, RawTransportOptions } from "./types.js";
+import type { ServerRequestArbiter } from "../lsp/server-requests.js";
 import type { LspMessage } from "../lsp/types.js";
 
 const HEADER_SEPARATOR = "\r\n\r\n";
@@ -15,13 +16,16 @@ const HEADER_SEPARATOR = "\r\n\r\n";
 export class RawTransportBridge implements TransportBridge {
     private stdoutBuffer: Buffer = Buffer.alloc(0);
     private disposed = false;
+    private arbiter?: ServerRequestArbiter;
     private onWsMessage?: (data: Buffer | string) => void;
     private onStdoutData?: (chunk: Buffer) => void;
 
     constructor(private opts: RawTransportOptions) { }
 
     start(): void {
-        const { ws, serverProcess, processClientMessage, processServerMessage } = this.opts;
+        const { ws, serverProcess, processClientMessage, processServerMessage, createArbiter } = this.opts;
+
+        this.arbiter = createArbiter?.((msg) => this.writeToServer(JSON.stringify(msg)));
 
         // WebSocket → stdin: parse JSON, intercept, re-serialize, frame with Content-Length
         this.onWsMessage = (data: Buffer | string) => {
@@ -29,7 +33,8 @@ export class RawTransportBridge implements TransportBridge {
             if (!serverProcess.stdin || serverProcess.stdin.destroyed) return;
             const raw = typeof data === "string" ? data : data.toString("utf-8");
             try {
-                const parsed = JSON.parse(raw);
+                const parsed = JSON.parse(raw) as LspMessage;
+                if (this.arbiter?.handleClientMessage(parsed) === "drop") return;
                 const transformed = processClientMessage(parsed);
                 this.writeToServer(JSON.stringify(transformed));
             } catch {
@@ -81,23 +86,22 @@ export class RawTransportBridge implements TransportBridge {
             const body = this.stdoutBuffer.subarray(bodyStart, bodyStart + contentLength);
             this.stdoutBuffer = this.stdoutBuffer.subarray(bodyStart + contentLength);
 
-            if (ws.readyState !== ws.OPEN) continue;
-
             const text = body.toString("utf-8");
+            let parsed: LspMessage | undefined;
             try {
-                const parsed: LspMessage = JSON.parse(text);
-
-                // Auto-respond to server→client requests the client can't handle
-                if (parsed.id !== undefined && parsed.method && AUTO_RESPOND_METHODS.has(parsed.method)) {
-                    this.writeToServer(JSON.stringify({ jsonrpc: "2.0", id: parsed.id, result: null }));
-                    continue;
-                }
-
-                const transformed = processServerMessage(parsed);
-                ws.send(JSON.stringify(transformed));
+                parsed = JSON.parse(text) as LspMessage;
             } catch {
-                ws.send(text);
+                if (ws.readyState === ws.OPEN) ws.send(text);
+                continue;
             }
+
+            // Runs even with the socket already closing: a server left waiting
+            // on a reply it will never get keeps its worker busy until the
+            // process is killed.
+            if (this.arbiter?.handleServerMessage(parsed) === "answered") continue;
+
+            if (ws.readyState !== ws.OPEN) continue;
+            ws.send(JSON.stringify(processServerMessage(parsed)));
         }
     }
 
@@ -110,6 +114,8 @@ export class RawTransportBridge implements TransportBridge {
         if (this.onStdoutData) serverProcess.stdout?.off("data", this.onStdoutData);
         this.onWsMessage = undefined;
         this.onStdoutData = undefined;
+        this.arbiter?.dispose();
+        this.arbiter = undefined;
         this.stdoutBuffer = Buffer.alloc(0);
     }
 }
